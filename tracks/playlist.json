@@ -1,1 +1,21 @@
-
+[
+  {
+    "title": "어디로 EDM",
+    "artist": "YNI",
+    "filename": "어디로 EDM.wav",
+    "icon": "🎵"
+  },
+  {
+    "title": "青春不散 EDM", 
+    "artist": "40degrees",
+    "filename": "青春不散 EDM.wav",
+    "icon": "🎶"
+  },
+  {
+    "title": "清醒失控 Clarity Cover",
+    "artist": "FTG",
+    "filename": "清醒失控 Clarity Cover.wav",
+    "icon": "🎸"
+  }
+]
+```
