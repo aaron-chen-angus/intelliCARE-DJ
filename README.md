@@ -1,2 +1,2 @@
 # intelliCARE-DJ
-intelliCARE DJ Functions under PLAY
+INTELLICARE DJ - Professional Mixing Console
