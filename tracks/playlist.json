@@ -1,13 +1,5 @@
 [
   {
-    "title": "어디로 EDM",
-    "artist": "YNI",
-    "filename": "어디로 EDM.mp3",
-    "bpm": 128,
-    "key": "F minor",
-    "icon": "🎵"
-  },
-  {
     "title": "青春不散 EDM", 
     "artist": "40degrees",
     "filename": "青春不散 EDM.mp3",
@@ -17,11 +9,43 @@
   },
   {
     "title": "清醒失控 Clarity Cover",
-    "artist": "FTG",
+    "artist": "40degrees",
     "filename": "清醒失控 Clarity Cover.mp3",
     "bpm": 128,
     "key": "F♯ major",
     "icon": "🎸"
+  },
+  {
+    "title": "爱呀 碰碰碰",
+    "artist": "FTG",
+    "filename": "爱呀 碰碰碰.mp3",
+    "bpm": 120,
+    "key": "F major",
+    "icon": "💕"
+  },
+  {
+    "title": "快乐旋律",
+    "artist": "FTG",
+    "filename": "快乐旋律.mp3",
+    "bpm": 135,
+    "key": "G major",
+    "icon": "🎉"
+  },
+  {
+    "title": "弥渡山歌 EDM Cover",
+    "artist": "The Couple",
+    "filename": "弥渡山歌 EDM Cover.mp3",
+    "bpm": 146,
+    "key": "D minor",
+    "icon": "🎧"
+  },
+  {
+    "title": "云桥入夜",
+    "artist": "The Couple",
+    "filename": "云桥入夜.mp3",
+    "bpm": 146,
+    "key": "E minor",
+    "icon": "🌙"
   },
   {
     "title": "Luv Virus Acoustic",
@@ -40,19 +64,35 @@
     "icon": "🎤"
   },
   {
-    "title": "弥渡山歌 EDM Cover",
-    "artist": "The Couple",
-    "filename": "弥渡山歌 EDM Cover.mp3",
-    "bpm": 146,
-    "key": "D minor",
-    "icon": "🎧"
+    "title": "어디로 EDM",
+    "artist": "YNI",
+    "filename": "어디로 EDM.mp3",
+    "bpm": 128,
+    "key": "F minor",
+    "icon": "🎵"
   },
   {
-    "title": "云桥入夜",
-    "artist": "The Couple",
-    "filename": "云桥入夜.mp3",
-    "bpm": 146,
-    "key": "E minor",
-    "icon": "🌙"
+    "title": "翎羽悸動 Acoustic",
+    "artist": "吴宛颖",
+    "filename": "翎羽悸動 Acoustic.mp3",
+    "bpm": 125,
+    "key": "F♯ major",
+    "icon": "🪶"
+  },
+  {
+    "title": "心已成空",
+    "artist": "徐薇惠",
+    "filename": "心已成空.mp3",
+    "bpm": 87,
+    "key": "D major",
+    "icon": "💔"
+  },
+  {
+    "title": "风里有光 Acoustic",
+    "artist": "徐薇惠",
+    "filename": "风里有光 Acoustic.mp3",
+    "bpm": 110,
+    "key": "E major",
+    "icon": "✨"
   }
 ]
