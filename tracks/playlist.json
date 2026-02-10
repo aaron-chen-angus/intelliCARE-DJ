@@ -1,11 +1,11 @@
 [
   {
-    "title": "青春不散 EDM", 
+    "title": "谁是谁",
     "artist": "40degrees",
-    "filename": "青春不散 EDM.mp3",
-    "bpm": 130,
-    "key": "E minor",
-    "icon": "🎶"
+    "filename": "谁是谁.mp3",
+    "bpm": 81,
+    "key": "A♯ minor",
+    "icon": "❓"
   },
   {
     "title": "清醒失控 Clarity Cover",
@@ -14,6 +14,54 @@
     "bpm": 128,
     "key": "F♯ major",
     "icon": "🎸"
+  },
+  {
+    "title": "青春不散 EDM",
+    "artist": "40degrees",
+    "filename": "青春不散 EDM.mp3",
+    "bpm": 130,
+    "key": "E minor",
+    "icon": "🎶"
+  },
+  {
+    "title": "我在你心裡有沒有重量 (苏慧伦 原唱)",
+    "artist": "APOP Artistes",
+    "filename": "我在你心裡有沒有重量.mp3",
+    "bpm": 116,
+    "key": "E major",
+    "icon": "⚖️"
+  },
+  {
+    "title": "祝你安好 (苏慧伦 原唱)",
+    "artist": "APOP Artistes",
+    "filename": "祝你安好.mp3",
+    "bpm": 118,
+    "key": "D major",
+    "icon": "🌿"
+  },
+  {
+    "title": "什麼是故鄉 (苏慧伦 原唱)",
+    "artist": "APOP Artistes",
+    "filename": "什麼是故鄉.mp3",
+    "bpm": 120,
+    "key": "C major",
+    "icon": "🏡"
+  },
+  {
+    "title": "接近天堂 (REM 原唱)",
+    "artist": "APOP Artistes",
+    "filename": "接近天堂.mp3",
+    "bpm": 121,
+    "key": "A major",
+    "icon": "😇"
+  },
+  {
+    "title": "兩顆寂寞的心 (苏慧伦 原唱)",
+    "artist": "APOP Artistes",
+    "filename": "兩顆寂寞的心.mp3",
+    "bpm": 138,
+    "key": "E♭ major",
+    "icon": "💞"
   },
   {
     "title": "爱呀 碰碰碰",
@@ -30,6 +78,22 @@
     "bpm": 135,
     "key": "G major",
     "icon": "🎉"
+  },
+  {
+    "title": "Bara Cinta",
+    "artist": "The Maria Sisters",
+    "filename": "Bara Cinta.mp3",
+    "bpm": 128,
+    "key": "F major",
+    "icon": "💖"
+  },
+  {
+    "title": "你讓我感動  (草蜢 黎瑞恩 原唱)",
+    "artist": "The Couple",
+    "filename": "你讓我感動.mp3",
+    "bpm": 99,
+    "key": "G major",
+    "icon": "🥹"
   },
   {
     "title": "弥渡山歌 EDM Cover",
@@ -56,6 +120,14 @@
     "icon": "🎹"
   },
   {
+    "title": "就现在爱我吧",
+    "artist": "YNI",
+    "filename": "就现在爱我吧.mp3",
+    "bpm": 110,
+    "key": "D minor",
+    "icon": "⏰"
+  },
+  {
     "title": "My Love Acoustic",
     "artist": "YNI",
     "filename": "My Love Acoustic.mp3",
@@ -72,12 +144,44 @@
     "icon": "🎵"
   },
   {
+    "title": "夏日自由曲",
+    "artist": "吴宛颖",
+    "filename": "夏日自由曲.mp3",
+    "bpm": 132,
+    "key": "F major",
+    "icon": "🌞"
+  },
+  {
     "title": "翎羽悸動 Acoustic",
     "artist": "吴宛颖",
     "filename": "翎羽悸動 Acoustic.mp3",
     "bpm": 125,
     "key": "F♯ major",
     "icon": "🪶"
+  },
+  {
+    "title": "重生心弦",
+    "artist": "刘美贤",
+    "filename": "重生心弦.mp3",
+    "bpm": 88,
+    "key": "A major",
+    "icon": "🎻"
+  },
+  {
+    "title": "每一天",
+    "artist": "黄琬婷",
+    "filename": "每一天.mp3",
+    "bpm": 100,
+    "key": "C major",
+    "icon": "☀️"
+  },
+  {
+    "title": "一遍又一遍",
+    "artist": "徐薇惠",
+    "filename": "一遍又一遍.mp3",
+    "bpm": 73,
+    "key": "E♭ major",
+    "icon": "🔁"
   },
   {
     "title": "心已成空",
@@ -88,11 +192,35 @@
     "icon": "💔"
   },
   {
+    "title": "飞越一切 (Emma Townshend 原唱)",
+    "artist": "徐薇惠",
+    "filename": "飞越一切.mp3",
+    "bpm": 104,
+    "key": "C major",
+    "icon": "🕊️"
+  },
+  {
     "title": "风里有光 Acoustic",
     "artist": "徐薇惠",
     "filename": "风里有光 Acoustic.mp3",
     "bpm": 110,
     "key": "E major",
     "icon": "✨"
+  },
+  {
+    "title": "诺言闪耀 (Nik Kershaw 原唱)",
+    "artist": "徐薇惠",
+    "filename": "诺言闪耀.mp3",
+    "bpm": 110,
+    "key": "G major",
+    "icon": "🌟"
+  },
+  {
+    "title": "再见 乔伊蕾 (Escape Club 原唱)",
+    "artist": "徐薇惠",
+    "filename": "再见 乔伊蕾.mp3",
+    "bpm": 134,
+    "key": "A major",
+    "icon": "👋"
   }
 ]
