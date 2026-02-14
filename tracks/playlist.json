@@ -2,225 +2,225 @@
   {
     "title": "谁是谁",
     "artist": "40degrees",
+    "artistImage": "40degrees.jpg",
     "filename": "谁是谁.mp3",
     "bpm": 81,
-    "key": "A♯ minor",
-    "icon": "❓"
+    "key": "A♯ minor"
   },
   {
     "title": "清醒失控 Clarity Cover",
     "artist": "40degrees",
+    "artistImage": "40degrees.jpg",
     "filename": "清醒失控 Clarity Cover.mp3",
     "bpm": 128,
-    "key": "F♯ major",
-    "icon": "🎸"
+    "key": "F♯ major"
   },
   {
     "title": "青春不散 EDM",
     "artist": "40degrees",
+    "artistImage": "40degrees.jpg",
     "filename": "青春不散 EDM.mp3",
     "bpm": 130,
-    "key": "E minor",
-    "icon": "🎶"
+    "key": "E minor"
   },
   {
     "title": "我在你心裡有沒有重量 (苏慧伦 原唱)",
     "artist": "APOP Artistes",
+    "artistImage": "APOP_Artistes.jpg",
     "filename": "我在你心裡有沒有重量.mp3",
     "bpm": 116,
-    "key": "E major",
-    "icon": "⚖️"
+    "key": "E major"
   },
   {
     "title": "祝你安好 (苏慧伦 原唱)",
     "artist": "APOP Artistes",
+    "artistImage": "APOP_Artistes.jpg",
     "filename": "祝你安好.mp3",
     "bpm": 118,
-    "key": "D major",
-    "icon": "🌿"
+    "key": "D major"
   },
   {
     "title": "什麼是故鄉 (苏慧伦 原唱)",
     "artist": "APOP Artistes",
+    "artistImage": "APOP_Artistes.jpg",
     "filename": "什麼是故鄉.mp3",
     "bpm": 120,
-    "key": "C major",
-    "icon": "🏡"
+    "key": "C major"
   },
   {
     "title": "接近天堂 (REM 原唱)",
     "artist": "APOP Artistes",
+    "artistImage": "APOP_Artistes.jpg",
     "filename": "接近天堂.mp3",
     "bpm": 121,
-    "key": "A major",
-    "icon": "😇"
+    "key": "A major"
   },
   {
     "title": "兩顆寂寞的心 (苏慧伦 原唱)",
     "artist": "APOP Artistes",
+    "artistImage": "APOP_Artistes.jpg",
     "filename": "兩顆寂寞的心.mp3",
     "bpm": 138,
-    "key": "E♭ major",
-    "icon": "💞"
+    "key": "E♭ major"
   },
   {
     "title": "爱呀 碰碰碰",
     "artist": "FTG",
+    "artistImage": "FTG.jpg",
     "filename": "爱呀 碰碰碰.mp3",
     "bpm": 120,
-    "key": "F major",
-    "icon": "💕"
+    "key": "F major"
   },
   {
     "title": "快乐旋律",
     "artist": "FTG",
+    "artistImage": "FTG.jpg",
     "filename": "快乐旋律.mp3",
     "bpm": 135,
-    "key": "G major",
-    "icon": "🎉"
+    "key": "G major"
   },
   {
     "title": "Bara Cinta",
     "artist": "The Maria Sisters",
+    "artistImage": "The_Maria_Sisters.jpg",
     "filename": "Bara Cinta.mp3",
     "bpm": 128,
-    "key": "F major",
-    "icon": "💖"
+    "key": "F major"
   },
   {
     "title": "你讓我感動  (草蜢 黎瑞恩 原唱)",
     "artist": "The Couple",
+    "artistImage": "The_Couple.jpg",
     "filename": "你讓我感動.mp3",
     "bpm": 99,
-    "key": "G major",
-    "icon": "🥹"
+    "key": "G major"
   },
   {
     "title": "弥渡山歌 EDM Cover",
     "artist": "The Couple",
+    "artistImage": "The_Couple.jpg",
     "filename": "弥渡山歌 EDM Cover.mp3",
     "bpm": 146,
-    "key": "D minor",
-    "icon": "🎧"
+    "key": "D minor"
   },
   {
     "title": "云桥入夜",
     "artist": "The Couple",
+    "artistImage": "The_Couple.jpg",
     "filename": "云桥入夜.mp3",
     "bpm": 146,
-    "key": "E minor",
-    "icon": "🌙"
+    "key": "E minor"
   },
   {
     "title": "Luv Virus Acoustic",
     "artist": "YNI",
+    "artistImage": "YNI.jpg",
     "filename": "Luv Virus Acoutstic.mp3",
     "bpm": 104,
-    "key": "B major",
-    "icon": "🎹"
+    "key": "B major"
   },
   {
     "title": "就现在爱我吧",
     "artist": "YNI",
+    "artistImage": "YNI.jpg",
     "filename": "就现在爱我吧.mp3",
     "bpm": 110,
-    "key": "D minor",
-    "icon": "⏰"
+    "key": "D minor"
   },
   {
     "title": "My Love Acoustic",
     "artist": "YNI",
+    "artistImage": "YNI.jpg",
     "filename": "My Love Acoustic.mp3",
     "bpm": 123,
-    "key": "A major",
-    "icon": "🎤"
+    "key": "A major"
   },
   {
     "title": "어디로 EDM",
     "artist": "YNI",
+    "artistImage": "YNI.jpg",
     "filename": "어디로 EDM.mp3",
     "bpm": 128,
-    "key": "F minor",
-    "icon": "🎵"
+    "key": "F minor"
   },
   {
     "title": "夏日自由曲",
     "artist": "吴宛颖",
+    "artistImage": "吴宛颖.jpg",
     "filename": "夏日自由曲.mp3",
     "bpm": 132,
-    "key": "F major",
-    "icon": "🌞"
+    "key": "F major"
   },
   {
     "title": "翎羽悸動 Acoustic",
     "artist": "吴宛颖",
+    "artistImage": "吴宛颖.jpg",
     "filename": "翎羽悸動 Acoustic.mp3",
     "bpm": 125,
-    "key": "F♯ major",
-    "icon": "🪶"
+    "key": "F♯ major"
   },
   {
     "title": "重生心弦",
     "artist": "刘美贤",
+    "artistImage": "刘美贤.jpg",
     "filename": "重生心弦.mp3",
     "bpm": 88,
-    "key": "A major",
-    "icon": "🎻"
+    "key": "A major"
   },
   {
     "title": "每一天",
     "artist": "黄琬婷",
+    "artistImage": "黄琬婷.jpg",
     "filename": "每一天.mp3",
     "bpm": 100,
-    "key": "C major",
-    "icon": "☀️"
+    "key": "C major"
   },
   {
     "title": "一遍又一遍",
     "artist": "徐薇惠",
+    "artistImage": "徐薇惠.jpg",
     "filename": "一遍又一遍.mp3",
     "bpm": 73,
-    "key": "E♭ major",
-    "icon": "🔁"
+    "key": "E♭ major"
   },
   {
     "title": "心已成空",
     "artist": "徐薇惠",
+    "artistImage": "徐薇惠.jpg",
     "filename": "心已成空.mp3",
     "bpm": 87,
-    "key": "D major",
-    "icon": "💔"
+    "key": "D major"
   },
   {
     "title": "飞越一切 (Emma Townshend 原唱)",
     "artist": "徐薇惠",
+    "artistImage": "徐薇惠.jpg",
     "filename": "飞越一切.mp3",
     "bpm": 104,
-    "key": "C major",
-    "icon": "🕊️"
+    "key": "C major"
   },
   {
     "title": "风里有光 Acoustic",
     "artist": "徐薇惠",
+    "artistImage": "徐薇惠.jpg",
     "filename": "风里有光 Acoustic.mp3",
     "bpm": 110,
-    "key": "E major",
-    "icon": "✨"
+    "key": "E major"
   },
   {
     "title": "诺言闪耀 (Nik Kershaw 原唱)",
     "artist": "徐薇惠",
+    "artistImage": "徐薇惠.jpg",
     "filename": "诺言闪耀.mp3",
     "bpm": 110,
-    "key": "G major",
-    "icon": "🌟"
+    "key": "G major"
   },
   {
     "title": "再见 乔伊蕾 (Escape Club 原唱)",
     "artist": "徐薇惠",
+    "artistImage": "徐薇惠.jpg",
     "filename": "再见 乔伊蕾.mp3",
     "bpm": 134,
-    "key": "A major",
-    "icon": "👋"
+    "key": "A major"
   }
 ]
