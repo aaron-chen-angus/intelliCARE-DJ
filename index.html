@@ -3455,7 +3455,10 @@
             'cc0:4': 'left.trim',  'cc0:7': 'left.hi',  'cc0:11': 'left.mid',  'cc0:15': 'left.low',  'cc0:19': 'left.vol',
             'cc1:4': 'right.trim', 'cc1:7': 'right.hi', 'cc1:11': 'right.mid', 'cc1:15': 'right.low', 'cc1:19': 'right.vol',
             'cc6:23': 'left.cfx', 'cc6:24': 'right.cfx', 'cc6:31': 'xf',
-            'n0:11': 'left.play', 'n1:11': 'right.play', 'n0:12': 'left.cue', 'n1:12': 'right.cue'
+            'n0:11': 'left.play', 'n1:11': 'right.play', 'n0:12': 'left.cue', 'n1:12': 'right.cue',
+            'cc0:33': 'left.jog',  'cc0:34': 'left.scratch',  'cc0:35': 'left.scratch',  'cc0:41': 'left.search',
+            'cc1:33': 'right.jog', 'cc1:34': 'right.scratch', 'cc1:35': 'right.scratch', 'cc1:41': 'right.search',
+            'n0:54': 'left.touch', 'n1:54': 'right.touch'
         };
         const MX_DEFAULT_PADS = { left: { ch: [7, 8], base: 0 }, right: { ch: [9, 10], base: 0 } };
         const MX_STORE = 'icdj_midi_map_v1';
@@ -3517,13 +3520,13 @@
 
         // ---------- Mixer panel UI ----------
         const MX_ROWS = [['trim', 'TRIM'], ['hi', 'HI'], ['mid', 'MID'], ['low', 'LOW'], ['cfx', 'CFX'], ['vol', 'VOL'],
-                         ['play', 'PLAY'], ['cue', 'CUE'], ['pads', 'PADS']];
+                         ['play', 'PLAY'], ['cue', 'CUE'], ['pads', 'PADS'], ['jog', 'JOG'], ['touch', 'TOUCH']];
         function buildMixerUI() {
             const g = document.getElementById('mxGrid');
             let h = '<div class="mx-colhead">LEFT</div><div></div><div class="mx-colhead">RIGHT</div>';
             MX_ROWS.forEach(([k, label]) => {
-                const cell = side => (k === 'play' || k === 'cue' || k === 'pads')
-                    ? `<div class="mx-cell mx-btn-cell" data-t="${side}.${k}" id="mx-${side}-${k}">${k === 'pads' ? (side === 'left' ? 'bottom 8' : 'top 8') : '●'}</div>`
+                const cell = side => (k === 'play' || k === 'cue' || k === 'pads' || k === 'jog' || k === 'touch')
+                    ? `<div class="mx-cell mx-btn-cell" data-t="${side}.${k}" id="mx-${side}-${k}">${k === 'pads' ? (side === 'left' ? 'bottom 8' : 'top 8') : k === 'jog' ? '⟳' : '●'}</div>`
                     : `<div class="mx-cell" data-t="${side}.${k}"><div class="mx-fill${k === 'hi' ? ' hi' : k === 'mid' ? ' mi' : k === 'low' ? ' lo' : ''}" id="mx-${side}-${k}"></div></div>`;
                 h += cell('left') + `<div class="mx-label">${label}</div>` + cell('right');
             });
@@ -3568,6 +3571,8 @@
             hint.className = 'mx-hint learn';
             hint.textContent = target.endsWith('.pads') ? 'Press PAD 1 (top-left) on that deck…'
                 : (target.endsWith('.play') || target.endsWith('.cue')) ? 'Press the button on the controller…'
+                : target.endsWith('.jog') ? 'Turn the jog wheel on the controller…'
+                : target.endsWith('.touch') ? 'Touch the top of the jog wheel…'
                 : 'Move the knob / fader on the controller…';
         }
 
@@ -3626,7 +3631,8 @@
 
             // MIDI learn
             if (mxLearn) {
-                const isButton = /\.(play|cue|pads)$/.test(mxLearn);
+                const isButton = /\.(play|cue|pads|touch)$/.test(mxLearn);
+                const isJog = /\.jog$/.test(mxLearn);
                 if (isButton && noteOn) {
                     if (mxLearn.endsWith('.pads')) {
                         mxPads[mxLearn.split('.')[0]] = { ch: [ch], base: d1 };
@@ -3635,7 +3641,7 @@
                         mxCustom['n' + ch + ':' + d1] = mxLearn;
                     }
                     finishLearn(`NOTE ch ${ch + 1} #${d1}`);
-                } else if (!isButton && type === 0xB0 && !(d1 >= 32 && d1 < 64)) {   // skip 14-bit LSB CCs
+                } else if (!isButton && type === 0xB0 && (isJog || !(d1 >= 32 && d1 < 64))) {   // skip 14-bit LSB CCs
                     Object.keys(mxCustom).forEach(k => { if (mxCustom[k] === mxLearn) delete mxCustom[k]; });
                     mxCustom['cc' + ch + ':' + d1] = mxLearn;
                     finishLearn(`CC ch ${ch + 1} #${d1}`);
@@ -3645,9 +3651,12 @@
 
             if (type === 0xB0) {
                 const t = mxLookup('cc' + ch + ':' + d1);
+                if (t && /\.(jog|scratch|search)$/.test(t)) { jogInput(t, d2); return; }
                 if (t) setControl(t, d2);
                 return;
             }
+            const tn = mxLookup('n' + ch + ':' + d1);
+            if (tn && tn.endsWith('.touch')) { jogTouch(tn.split('.')[0], noteOn); return; }
             if (!noteOn) return;
 
             const t = mxLookup('n' + ch + ':' + d1);
@@ -3678,6 +3687,120 @@
             if (dev && !bindMidiInputs.announced) { bindMidiInputs.announced = true; showNotification(`🎛️ ${dev} connected`, 'success'); }
             if (!dev) bindMidiInputs.announced = false;
         }
+
+
+        // ---------- JOG WHEELS ----------
+        // Paused deck: turning the jog moves the track position (cue the spot you want).
+        // Playing deck: touch the top (or turn the top) = hold & scrub, release = play on from there;
+        //               turn the outer ring = pitch-bend nudge to line beats up.
+        // SHIFT + jog = fast search.
+        const JOG_SEEK = 0.012;     // seconds per jog tick (fine placement)
+        const JOG_SEARCH = 0.25;    // seconds per tick with SHIFT
+        const JOG_NUDGE = 0.03;     // playback-rate change per tick for the outer ring
+        const jogState = {
+            left:  { touched: false, holding: false, holdTimer: null, nudge: null, nudgeTimer: null },
+            right: { touched: false, holding: false, holdTimer: null, nudge: null, nudgeTimer: null }
+        };
+
+        function jogLoaded(side) { return USE_HTML5_AUDIO ? tracks[side].audioElement : tracks[side].buffer; }
+        function jogDuration(side) {
+            return USE_HTML5_AUDIO ? (tracks[side].audioElement.duration || 0) : tracks[side].buffer.duration;
+        }
+
+        // Move a stopped / held deck by dt seconds and refresh the display
+        function jogSeek(side, dt) {
+            const t = tracks[side], dur = jogDuration(side);
+            if (!dur) return;
+            const pos = Math.max(0, Math.min(dur - 0.05, (t.pauseTime || 0) + dt));
+            t.pauseTime = pos;
+            if (USE_HTML5_AUDIO && t.audioElement) t.audioElement.currentTime = pos;
+            document.getElementById(side + 'Playhead').style.left = (pos / dur * 100) + '%';
+            document.getElementById(side + 'Time').textContent = formatTime(Math.floor(pos)) + ' / ' + formatTime(Math.floor(dur));
+            if (!USE_HTML5_AUDIO && rgbWave[side]) renderRGB(side);
+        }
+
+        // Hold a playing deck while the platter is touched / scratched
+        function jogHold(side) {
+            const js = jogState[side];
+            if (js.holding || !tracks[side].isPlaying) return;
+            js.holding = true;
+            pauseTrack(side);
+        }
+        function jogRelease(side) {
+            const js = jogState[side];
+            clearTimeout(js.holdTimer);
+            if (!js.holding) return;
+            js.holding = false;
+            playTrack(side);
+        }
+        function jogTouch(side, on) {
+            const js = jogState[side];
+            js.touched = on;
+            flashCell(`mx-${side}-touch`);
+            if (!jogLoaded(side)) return;
+            if (on) jogHold(side); else jogRelease(side);
+        }
+
+        // Outer-ring nudge: temporary speed change, with the deck clock corrected afterwards
+        function jogNudgeFinalize(side) {
+            const js = jogState[side], n = js.nudge, t = tracks[side];
+            clearTimeout(js.nudgeTimer);
+            if (!n) return;
+            js.nudge = null;
+            if (USE_HTML5_AUDIO) {
+                if (t.audioElement) t.audioElement.playbackRate = 1;
+            } else if (t.source === n.src && audioContext) {
+                t.startTime -= (n.rate - 1) * (audioContext.currentTime - n.since);
+                t.source.playbackRate.value = 1;
+            }
+        }
+        function jogNudge(side, delta) {
+            const js = jogState[side], t = tracks[side];
+            const rate = Math.max(0.6, Math.min(1.4, 1 + delta * JOG_NUDGE));
+            if (USE_HTML5_AUDIO) {
+                clearTimeout(js.nudgeTimer);
+                if (t.audioElement) t.audioElement.playbackRate = rate;
+                js.nudge = { rate };
+            } else {
+                if (!t.source || !audioContext) return;
+                if (js.nudge && js.nudge.src === t.source) {
+                    t.startTime -= (js.nudge.rate - 1) * (audioContext.currentTime - js.nudge.since);
+                }
+                clearTimeout(js.nudgeTimer);
+                t.source.playbackRate.value = rate;
+                js.nudge = { rate, since: audioContext.currentTime, src: t.source };
+            }
+            js.nudgeTimer = setTimeout(() => jogNudgeFinalize(side), 90);
+        }
+
+        function jogInput(target, v) {
+            const [side, kind] = target.split('.');
+            if (!jogLoaded(side)) return;
+            const delta = v - 64;                 // Pioneer jogs send 64 ± ticks
+            if (!delta) return;
+            flashCell(`mx-${side}-jog`);
+            const js = jogState[side];
+
+            if (kind === 'search') {
+                if (tracks[side].isPlaying) jogHold(side);
+                jogSeek(side, delta * JOG_SEARCH);
+            } else if (tracks[side].isPlaying && kind === 'jog' && !js.touched) {
+                jogNudge(side, delta);
+                return;
+            } else {
+                if (tracks[side].isPlaying) jogHold(side);
+                jogSeek(side, delta * JOG_SEEK);
+            }
+            // If no touch-release message arrives, resume shortly after the wheel stops
+            if (js.holding && !js.touched) {
+                clearTimeout(js.holdTimer);
+                js.holdTimer = setTimeout(() => jogRelease(side), 300);
+            }
+        }
+
+        // Keep the deck clock correct if a deck is paused mid-nudge
+        const mxOrigPause = pauseTrack;
+        pauseTrack = function(side) { jogNudgeFinalize(side); return mxOrigPause(side); };
 
         if (!USE_HTML5_AUDIO) document.body.classList.add('rgb-wave');
         buildMixerUI();
