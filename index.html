@@ -1553,6 +1553,60 @@
                 min-height: 44px;
             }
         }
+
+        /* ===== RGB waveform (desktop) ===== */
+        body.rgb-wave .waveforms-container { height: 120px; }
+        body.rgb-wave .playhead { display: none; }
+        body.rgb-wave .time-display { top: 6px; bottom: auto; }
+
+        /* ===== DDJ-FLX2 MIDI mixer ===== */
+        .midi-pill {
+            position: fixed; top: 8px; left: 8px; z-index: 950;
+            display: none; align-items: center; gap: 6px;
+            padding: 5px 11px; border-radius: 20px; cursor: pointer;
+            background: rgba(15, 15, 30, 0.9); color: #ccc;
+            border: 1px solid rgba(102, 126, 234, 0.5);
+            font-size: 10px; font-weight: 700; letter-spacing: 1px; font-family: inherit;
+        }
+        .midi-pill .midi-dot { width: 7px; height: 7px; border-radius: 50%; background: #555; }
+        .midi-pill.connected { color: #00ff88; border-color: rgba(0, 255, 136, 0.6); }
+        .midi-pill.connected .midi-dot { background: #00ff88; box-shadow: 0 0 8px #00ff88; }
+        .midi-pill.activity .midi-dot { background: #fff; box-shadow: 0 0 10px #fff; }
+        .midi-panel {
+            position: fixed; top: 40px; left: 8px; z-index: 950; width: 330px;
+            max-width: calc(100vw - 16px); max-height: calc(100vh - 56px); overflow-y: auto;
+            background: rgba(12, 12, 24, 0.97); border: 1px solid rgba(102, 126, 234, 0.45);
+            border-radius: 14px; padding: 14px; display: none;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.7); font-size: 11px; color: #ddd;
+        }
+        .midi-panel.open { display: block; }
+        .mx-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+        .mx-title { font-family: 'Orbitron', sans-serif; font-weight: 700; font-size: 12px; letter-spacing: 2px; color: #00d4ff; }
+        .mx-close { background: none; border: none; color: #888; font-size: 18px; cursor: pointer; line-height: 1; }
+        .mx-device { color: #888; margin-bottom: 10px; font-size: 10px; }
+        .mx-grid { display: grid; grid-template-columns: 1fr 44px 1fr; gap: 5px 8px; align-items: center; }
+        .mx-colhead { text-align: center; font-weight: 700; font-size: 9px; letter-spacing: 1.5px; color: #00ff88; }
+        .mx-label { text-align: center; font-size: 9px; font-weight: 700; letter-spacing: 1px; color: #999; }
+        .mx-cell {
+            height: 16px; border-radius: 4px; background: rgba(255, 255, 255, 0.06);
+            position: relative; overflow: hidden; cursor: pointer; border: 1px solid transparent;
+        }
+        .mx-cell:hover { border-color: rgba(0, 212, 255, 0.5); }
+        .mx-cell.learning { border-color: #ffcc00; animation: mxBlink 0.8s infinite; }
+        .mx-fill { position: absolute; top: 0; bottom: 0; background: linear-gradient(90deg, #00ff88, #00d4ff); }
+        .mx-fill.lo { background: #eb232d; } .mx-fill.mi { background: #23dc46; } .mx-fill.hi { background: #2d6eff; }
+        .mx-btn-cell { display: flex; align-items: center; justify-content: center; font-size: 9px; color: #888; }
+        .mx-btn-cell.flash { background: rgba(0, 255, 136, 0.35); color: #fff; }
+        .mx-xf { grid-column: 1 / 4; }
+        .mx-hint { margin-top: 10px; color: #888; font-size: 10px; line-height: 1.5; }
+        .mx-hint.learn { color: #ffcc00; }
+        .mx-mon { margin-top: 6px; font-family: monospace; font-size: 10px; color: #00d4ff; }
+        .mx-reset {
+            margin-top: 10px; width: 100%; padding: 6px; border-radius: 6px; cursor: pointer;
+            background: rgba(255, 255, 255, 0.05); color: #aaa; border: 1px solid rgba(255, 255, 255, 0.15);
+            font-size: 10px; font-family: inherit;
+        }
+        @keyframes mxBlink { 50% { border-color: transparent; } }
     </style>
 </head>
 <body>
@@ -2494,100 +2548,189 @@
             return Math.round(bpm);
         }
 
+        // ===== RGB FREQUENCY WAVEFORM (desktop) =====
+        // Red = low (bass/kick), Green = mid (vocals/synths), Blue = high (hats/cymbals)
         let desktopWaveformAnimations = {};
-        let desktopWaveformData = {}; // Store data for re-animation
-        
-        // Start desktop waveform animation
-        function startDesktopWaveform(side) {
-            if (!desktopWaveformData[side]) return;
-            
-            const { canvas, ctx, amplitudes, width, height, centerY } = desktopWaveformData[side];
-            let animationOffset = 0;
-            
-            function animate() {
-                // Stop if track is not playing
-                if (!tracks[side].isPlaying) {
-                    return;
+        const RGB_RATE = 150;          // analysis points per second
+        const RGB_WINDOW_SEC = 6;      // seconds visible in the scrolling view
+        const RGB_OVERVIEW_H = 14;     // px height of full-track overview strip
+        const rgbWave = {};
+
+        function analyzeRGB(buffer, bpm) {
+            const sr = buffer.sampleRate, n = buffer.length;
+            const c0 = buffer.getChannelData(0);
+            const c1 = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : null;
+            const hop = Math.max(1, Math.round(sr / RGB_RATE));
+            const bins = Math.ceil(n / hop);
+            const L = new Float32Array(bins), M = new Float32Array(bins), H = new Float32Array(bins);
+            const aLo = 1 - Math.exp(-2 * Math.PI * 200 / sr);
+            const aHi = 1 - Math.exp(-2 * Math.PI * 2500 / sr);
+            let l1 = 0, l2 = 0, h1 = 0, h2 = 0;
+            for (let b = 0; b < bins; b++) {
+                let pl = 0, pm = 0, ph = 0;
+                const end = Math.min(n, (b + 1) * hop);
+                for (let i = b * hop; i < end; i++) {
+                    const x = c1 ? (c0[i] + c1[i]) * 0.5 : c0[i];
+                    l1 += aLo * (x - l1); l2 += aLo * (l1 - l2);   // 12 dB/oct low-pass @200 Hz
+                    h1 += aHi * (x - h1); h2 += aHi * (h1 - h2);   // 12 dB/oct low-pass @2.5 kHz
+                    const lo = Math.abs(l2), mi = Math.abs(h2 - l2), hi = Math.abs(x - h2);
+                    if (lo > pl) pl = lo; if (mi > pm) pm = mi; if (hi > ph) ph = hi;
                 }
-                
-                // Background
-                ctx.fillStyle = 'rgba(10, 10, 20, 0.8)';
-                ctx.fillRect(0, 0, width, height);
-                
-                // Center line
-                ctx.strokeStyle = '#333';
-                ctx.lineWidth = 1;
-                ctx.beginPath();
-                ctx.moveTo(0, centerY);
-                ctx.lineTo(width, centerY);
-                ctx.stroke();
-                
-                // Draw animated waveform
-                for (let x = 0; x < width; x++) {
-                    const amplitude = amplitudes[x];
-                    
-                    if (amplitude > 0) {
-                        const barHeight = amplitude * height * 2;
-                        const hue = ((x / width * 360) + animationOffset) % 360;
-                        const saturation = 70 + amplitude * 30;
-                        const lightness = 45 + amplitude * 25;
-                        
-                        ctx.fillStyle = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-                        ctx.fillRect(x, centerY - barHeight / 2, 1, barHeight);
-                    }
-                }
-                
-                animationOffset += 1.5;
-                desktopWaveformAnimations[side] = requestAnimationFrame(animate);
+                L[b] = pl; M[b] = pm; H[b] = ph;
             }
-            
-            animate();
+            [L, M, H].forEach(arr => {
+                let mx = 0;
+                for (let i = 0; i < arr.length; i++) if (arr[i] > mx) mx = arr[i];
+                if (mx > 0) for (let i = 0; i < arr.length; i++) arr[i] = Math.min(1, arr[i] / mx);
+            });
+            // Beat-grid phase: first strong bass hit in the first 15 s
+            let offset = 0;
+            const lim = Math.min(bins, RGB_RATE * 15);
+            for (let b = 0; b < lim; b++) { if (L[b] > 0.5) { offset = b / RGB_RATE; break; } }
+            return { L, M, H, bins, dur: buffer.duration, bpm: bpm || 0, offset, ov: null };
         }
-        
-        function drawWaveform(buffer, side) {
+
+        function rgbCurrentTime(side) {
+            const t = tracks[side];
+            const d = t.buffer ? t.buffer.duration : 0;
+            const ct = (t.isPlaying && audioContext) ? audioContext.currentTime - t.startTime : t.pauseTime;
+            return d ? ((ct % d) + d) % d : 0;
+        }
+
+        function renderRGB(side) {
             const canvas = document.getElementById(side + 'Canvas');
             const ctx = canvas.getContext('2d');
-            
-            canvas.width = canvas.offsetWidth;
-            canvas.height = canvas.offsetHeight;
-            
-            const width = canvas.width;
-            const height = canvas.height;
-            const centerY = height / 2;
-            
-            // Extract waveform data once
-            const channelData = buffer.getChannelData(0);
-            const samples = channelData.length;
-            const samplesPerPixel = Math.floor(samples / width);
-            
-            // Pre-calculate amplitudes for better performance
-            const amplitudes = [];
-            for (let x = 0; x < width; x++) {
-                let sum = 0;
-                let count = 0;
-                
-                for (let i = 0; i < samplesPerPixel; i++) {
-                    const index = Math.floor(x * samplesPerPixel + i);
-                    if (index < samples) {
-                        sum += Math.abs(channelData[index]);
-                        count++;
-                    }
+            const dpr = window.devicePixelRatio || 1;
+            const cw = canvas.clientWidth, ch = canvas.clientHeight;
+            if (!cw || !ch) return;
+            if (canvas.width !== Math.round(cw * dpr) || canvas.height !== Math.round(ch * dpr)) {
+                canvas.width = Math.round(cw * dpr);
+                canvas.height = Math.round(ch * dpr);
+            }
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.fillStyle = 'rgba(10, 10, 20, 0.95)';
+            ctx.fillRect(0, 0, cw, ch);
+            const w = rgbWave[side];
+            if (!w) return;
+
+            const zH = ch - RGB_OVERVIEW_H - 3;
+            const cy = zH / 2;
+            const now = rgbCurrentTime(side);
+            const pps = cw / RGB_WINDOW_SEC;
+            const mid = cw / 2;
+            const bands = [[w.L, 'rgb(235,35,45)', 1.0], [w.M, 'rgb(35,220,70)', 0.8], [w.H, 'rgb(45,110,255)', 0.6]];
+
+            // Scrolling zoomed waveform (bands added together: R+G=yellow, R+G+B=white)
+            ctx.globalCompositeOperation = 'lighter';
+            bands.forEach(([arr, col, k]) => {
+                ctx.fillStyle = col;
+                for (let x = 0; x < cw; x++) {
+                    const t0 = now + (x - mid) / pps;
+                    if (t0 < 0 || t0 >= w.dur) continue;
+                    const b0 = Math.floor(t0 * RGB_RATE);
+                    const b1 = Math.max(b0 + 1, Math.floor((t0 + 1 / pps) * RGB_RATE));
+                    let v = 0;
+                    for (let b = b0; b < b1 && b < w.bins; b++) if (arr[b] > v) v = arr[b];
+                    const h = v * cy * 0.95 * k;
+                    if (h > 0.3) ctx.fillRect(x, cy - h, 1, h * 2);
                 }
-                
-                amplitudes[x] = count > 0 ? sum / count : 0;
+            });
+            ctx.globalCompositeOperation = 'source-over';
+
+            // Beat grid
+            if (w.bpm > 0) {
+                const beat = 60 / w.bpm;
+                const first = Math.ceil((now - mid / pps - w.offset) / beat);
+                const last = Math.floor((now + mid / pps - w.offset) / beat);
+                for (let k = first; k <= last; k++) {
+                    const tb = w.offset + k * beat;
+                    if (tb < 0 || tb > w.dur) continue;
+                    const x = Math.round(mid + (tb - now) * pps) + 0.5;
+                    ctx.fillStyle = (k % 4 === 0) ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.12)';
+                    ctx.fillRect(x, 0, 1, zH);
+                }
             }
-            
-            // Store data for re-animation
-            desktopWaveformData[side] = { canvas, ctx, amplitudes, width, height, centerY };
-            
-            // Stop any existing animation
-            if (desktopWaveformAnimations[side]) {
-                cancelAnimationFrame(desktopWaveformAnimations[side]);
+
+            // Dim the already-played half
+            ctx.fillStyle = 'rgba(10, 10, 20, 0.35)';
+            ctx.fillRect(0, 0, mid, zH);
+
+            // Fixed white playhead in the centre
+            ctx.shadowColor = 'rgba(255,255,255,0.9)';
+            ctx.shadowBlur = 8;
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(Math.round(mid) - 1, 0, 2, zH);
+            ctx.shadowBlur = 0;
+
+            // Full-track overview strip
+            const oy = ch - RGB_OVERVIEW_H;
+            const ocy = oy + RGB_OVERVIEW_H / 2;
+            if (!w.ov || w.ov.width !== cw) {
+                const data = bands.map(([arr]) => {
+                    const out = new Float32Array(cw);
+                    for (let x = 0; x < cw; x++) {
+                        const b0 = Math.floor(x / cw * w.bins), b1 = Math.max(b0 + 1, Math.floor((x + 1) / cw * w.bins));
+                        let v = 0;
+                        for (let b = b0; b < b1; b++) if (arr[b] > v) v = arr[b];
+                        out[x] = v;
+                    }
+                    return out;
+                });
+                w.ov = { width: cw, data };
             }
-            
-            // Start animation
+            ctx.fillStyle = 'rgba(0,0,0,0.5)';
+            ctx.fillRect(0, oy, cw, RGB_OVERVIEW_H);
+            ctx.globalCompositeOperation = 'lighter';
+            bands.forEach(([, col, k], i) => {
+                ctx.fillStyle = col;
+                const d = w.ov.data[i];
+                for (let x = 0; x < cw; x++) {
+                    const h = d[x] * (RGB_OVERVIEW_H / 2) * k;
+                    if (h > 0.3) ctx.fillRect(x, ocy - h, 1, h * 2);
+                }
+            });
+            ctx.globalCompositeOperation = 'source-over';
+            const px = (now / w.dur) * cw;
+            ctx.fillStyle = 'rgba(10, 10, 20, 0.5)';
+            ctx.fillRect(0, oy, px, RGB_OVERVIEW_H);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(Math.round(px) - 1, oy, 2, RGB_OVERVIEW_H);
+        }
+
+        function rgbLoop(side) {
+            renderRGB(side);
+            if (tracks[side].isPlaying) {
+                desktopWaveformAnimations[side] = requestAnimationFrame(() => rgbLoop(side));
+            }
+        }
+
+        // Start desktop waveform animation (runs while the deck plays, freezes when it stops)
+        function startDesktopWaveform(side) {
+            if (!rgbWave[side]) return;
+            if (desktopWaveformAnimations[side]) cancelAnimationFrame(desktopWaveformAnimations[side]);
+            rgbLoop(side);
+        }
+
+        function drawWaveform(buffer, side) {
+            rgbWave[side] = analyzeRGB(buffer, tracks[side].bpm);
             startDesktopWaveform(side);
         }
+
+        // Seek: click scrolling view = relative jump, click overview strip = absolute position
+        function rgbSeekTime(event, side, x, rect, fallback) {
+            const w = rgbWave[side];
+            if (!w) return fallback;
+            const point = (event.changedTouches && event.changedTouches[0]) || (event.touches && event.touches[0]) || event;
+            const y = point.clientY - rect.top;
+            if (y >= rect.height - RGB_OVERVIEW_H - 3) return fallback;
+            const t = rgbCurrentTime(side) + (x - rect.width / 2) / (rect.width / RGB_WINDOW_SEC);
+            return Math.max(0, Math.min(w.dur - 0.05, t));
+        }
+
+        window.addEventListener('resize', () => {
+            ['left', 'right'].forEach(side => { if (rgbWave[side] && !tracks[side].isPlaying) renderRGB(side); });
+        });
 
         // Animated waveform for mobile
         let mobileWaveformAnimations = {};
@@ -2735,7 +2878,8 @@
                 // Desktop: Use Web Audio API
                 const ctx = getAudioContext();
                 const source = ctx.createBufferSource();
-                const gainNode = ctx.createGain();
+                const chain = getDeckChain(side);
+                const gainNode = chain.xfade;   // crossfader stage of the deck chain
                 
                 source.buffer = track.buffer;
                 source.loop = true;
@@ -2744,8 +2888,7 @@
                 const volume = side === 'left' ? (100 - sliderValue) / 100 : sliderValue / 100;
                 gainNode.gain.value = volume;
                 
-                source.connect(gainNode);
-                gainNode.connect(ctx.destination);
+                source.connect(chain.input);
                 source.start(0, track.pauseTime);
                 
                 track.source = source;
@@ -2815,6 +2958,7 @@
             pauseTrack(side);
             tracks[side].pauseTime = 0;
             document.getElementById(side + 'Playhead').style.left = '0%';
+            if (!USE_HTML5_AUDIO && rgbWave[side]) renderRGB(side);
             if (tracks[side].buffer) {
                 document.getElementById(side + 'Time').textContent = '0:00 / ' + formatTime(Math.floor(tracks[side].buffer.duration));
             }
@@ -2824,6 +2968,7 @@
             stopTrack(side);
             
             tracks[side].buffer = null;
+            delete rgbWave[side];
             tracks[side].bpm = null;
             tracks[side].name = null;
             tracks[side].pauseTime = 0;
@@ -2905,7 +3050,10 @@
                 duration = tracks[side].buffer.duration;
             }
             
-            const seekTime = duration * percentage;
+            let seekTime = duration * percentage;
+            if (!USE_HTML5_AUDIO && rgbWave[side]) {
+                seekTime = rgbSeekTime(event, side, x, rect, seekTime);
+            }
             
             const wasPlaying = tracks[side].isPlaying;
             
@@ -2928,6 +3076,8 @@
             
             if (wasPlaying) {
                 playTrack(side);
+            } else if (!USE_HTML5_AUDIO && rgbWave[side]) {
+                renderRGB(side);
             }
             
             console.log(`⏩ Seeked ${side} to ${formatTime(elapsed)}`);
@@ -2997,6 +3147,7 @@
                     if (wasPlaying) pauseTrack(side);
                     tracks[side].pauseTime = Math.max(0, tracks[side].pauseTime - 10);
                     if (wasPlaying) playTrack(side);
+                    else if (!USE_HTML5_AUDIO && rgbWave[side]) renderRGB(side);
                 }
             });
         }
@@ -3008,6 +3159,7 @@
                     if (wasPlaying) pauseTrack(side);
                     tracks[side].pauseTime = Math.min(tracks[side].buffer.duration - 1, tracks[side].pauseTime + 10);
                     if (wasPlaying) playTrack(side);
+                    else if (!USE_HTML5_AUDIO && rgbWave[side]) renderRGB(side);
                 }
             });
         }
@@ -3278,6 +3430,269 @@
         };
     </script>
     
-    <!-- Removed Eruda console - no longer needed -->
+    <!-- DDJ-FLX2 MIDI controller -->
+    <button class="midi-pill" id="midiPill" onclick="toggleMidiPanel()">
+        <span class="midi-dot"></span><span id="midiPillText">MIDI</span>
+    </button>
+    <div class="midi-panel" id="midiPanel">
+        <div class="mx-head">
+            <div class="mx-title">DDJ-FLX2 MIXER</div>
+            <button class="mx-close" onclick="toggleMidiPanel()">×</button>
+        </div>
+        <div class="mx-device" id="midiDevice">No controller detected</div>
+        <div class="mx-grid" id="mxGrid"></div>
+        <div class="mx-hint" id="midiHint">Click any cell, then move that control on the DDJ-FLX2 to re-map it.</div>
+        <div class="mx-mon">Last MIDI: <span id="midiMon">—</span></div>
+        <button class="mx-reset" onclick="resetMidiMap()">Reset to default DDJ-FLX2 mapping</button>
+    </div>
+
+    <script>
+        // ===================== DDJ-FLX2 MIDI CONTROLLER =====================
+        // Default map follows the Pioneer DDJ layout: deck 1 = MIDI ch 1, deck 2 = ch 2,
+        // mixer extras on ch 7, pads on ch 8/9 (left, +shift) and ch 10/11 (right, +shift).
+        // Any control can be re-mapped in the MIDI panel (MIDI learn) if your unit differs.
+        const MX_DEFAULT_MAP = {
+            'cc0:4': 'left.trim',  'cc0:7': 'left.hi',  'cc0:11': 'left.mid',  'cc0:15': 'left.low',  'cc0:19': 'left.vol',
+            'cc1:4': 'right.trim', 'cc1:7': 'right.hi', 'cc1:11': 'right.mid', 'cc1:15': 'right.low', 'cc1:19': 'right.vol',
+            'cc6:23': 'left.cfx', 'cc6:24': 'right.cfx', 'cc6:31': 'xf',
+            'n0:11': 'left.play', 'n1:11': 'right.play', 'n0:12': 'left.cue', 'n1:12': 'right.cue'
+        };
+        const MX_DEFAULT_PADS = { left: { ch: [7, 8], base: 0 }, right: { ch: [9, 10], base: 0 } };
+        const MX_STORE = 'icdj_midi_map_v1';
+
+        const mixState = {
+            left:  { trim: 64, hi: 64, mid: 64, low: 64, cfx: 64, vol: 127 },
+            right: { trim: 64, hi: 64, mid: 64, low: 64, cfx: 64, vol: 127 }
+        };
+        const deckChains = {};
+        let mxCustom = {}, mxPads = JSON.parse(JSON.stringify(MX_DEFAULT_PADS));
+        let mxLearn = null, midiAccess = null, mxUiQueued = false, mxActTimer = null;
+
+        try {
+            const saved = JSON.parse(localStorage.getItem(MX_STORE) || 'null');
+            if (saved) { mxCustom = saved.map || {}; if (saved.pads) mxPads = saved.pads; }
+        } catch (e) {}
+        function mxSave() {
+            try { localStorage.setItem(MX_STORE, JSON.stringify({ map: mxCustom, pads: mxPads })); } catch (e) {}
+        }
+
+        // ---------- Desktop audio chain: input(trim) → LOW → MID → HI → CFX LP → CFX HP → fader → crossfader ----------
+        function getDeckChain(side) {
+            if (deckChains[side]) return deckChains[side];
+            const ctx = getAudioContext();
+            const c = {
+                input: ctx.createGain(), low: ctx.createBiquadFilter(), mid: ctx.createBiquadFilter(),
+                high: ctx.createBiquadFilter(), lp: ctx.createBiquadFilter(), hp: ctx.createBiquadFilter(),
+                fader: ctx.createGain(), xfade: ctx.createGain()
+            };
+            c.low.type = 'lowshelf';   c.low.frequency.value = 250;
+            c.mid.type = 'peaking';    c.mid.frequency.value = 1000; c.mid.Q.value = 0.8;
+            c.high.type = 'highshelf'; c.high.frequency.value = 4000;
+            c.lp.type = 'lowpass';     c.lp.frequency.value = 20000; c.lp.Q.value = 0.7;
+            c.hp.type = 'highpass';    c.hp.frequency.value = 20;    c.hp.Q.value = 0.7;
+            c.input.connect(c.low); c.low.connect(c.mid); c.mid.connect(c.high); c.high.connect(c.lp);
+            c.lp.connect(c.hp); c.hp.connect(c.fader); c.fader.connect(c.xfade); c.xfade.connect(ctx.destination);
+            deckChains[side] = c;
+            applyDeck(side);
+            return c;
+        }
+
+        function eqDb(v) { return v <= 64 ? -40 * (1 - v / 64) : 6 * (v - 64) / 63; }
+
+        function applyDeck(side) {
+            const c = deckChains[side];
+            if (!c) return;
+            const s = mixState[side], t = c.input.context.currentTime, tc = 0.012;
+            c.input.gain.setTargetAtTime(s.trim <= 64 ? s.trim / 64 : 1 + (s.trim - 64) / 63, t, tc);
+            c.low.gain.setTargetAtTime(eqDb(s.low), t, tc);
+            c.mid.gain.setTargetAtTime(eqDb(s.mid), t, tc);
+            c.high.gain.setTargetAtTime(eqDb(s.hi), t, tc);
+            const d = s.cfx < 64 ? (s.cfx - 64) / 64 : (s.cfx - 64) / 63;   // -1 … +1, centre = off
+            const lpF = d < -0.04 ? 20000 * Math.pow(150 / 20000, -d) : 20000;
+            const hpF = d >  0.04 ? 20 * Math.pow(6000 / 20, d) : 20;
+            c.lp.frequency.setTargetAtTime(lpF, t, tc); c.lp.Q.value = d < -0.04 ? 1.8 : 0.7;
+            c.hp.frequency.setTargetAtTime(hpF, t, tc); c.hp.Q.value = d >  0.04 ? 1.8 : 0.7;
+            c.fader.gain.setTargetAtTime(Math.pow(s.vol / 127, 1.5), t, tc);
+        }
+
+        // ---------- Mixer panel UI ----------
+        const MX_ROWS = [['trim', 'TRIM'], ['hi', 'HI'], ['mid', 'MID'], ['low', 'LOW'], ['cfx', 'CFX'], ['vol', 'VOL'],
+                         ['play', 'PLAY'], ['cue', 'CUE'], ['pads', 'PADS']];
+        function buildMixerUI() {
+            const g = document.getElementById('mxGrid');
+            let h = '<div class="mx-colhead">LEFT</div><div></div><div class="mx-colhead">RIGHT</div>';
+            MX_ROWS.forEach(([k, label]) => {
+                const cell = side => (k === 'play' || k === 'cue' || k === 'pads')
+                    ? `<div class="mx-cell mx-btn-cell" data-t="${side}.${k}" id="mx-${side}-${k}">${k === 'pads' ? (side === 'left' ? 'bottom 8' : 'top 8') : '●'}</div>`
+                    : `<div class="mx-cell" data-t="${side}.${k}"><div class="mx-fill${k === 'hi' ? ' hi' : k === 'mid' ? ' mi' : k === 'low' ? ' lo' : ''}" id="mx-${side}-${k}"></div></div>`;
+                h += cell('left') + `<div class="mx-label">${label}</div>` + cell('right');
+            });
+            h += '<div class="mx-label mx-xf" style="margin-top:6px">CROSSFADER</div>';
+            h += '<div class="mx-cell mx-xf" data-t="xf"><div class="mx-fill" id="mx-xf"></div></div>';
+            g.innerHTML = h;
+            g.querySelectorAll('.mx-cell').forEach(el => el.addEventListener('click', () => startLearn(el.dataset.t)));
+            refreshMixerUI();
+        }
+
+        function setFill(el, v, bipolar) {
+            if (!el) return;
+            const p = v / 127 * 100;
+            if (bipolar) { const a = Math.min(p, 50), b = Math.max(p, 50); el.style.left = a + '%'; el.style.width = Math.max(1.5, b - a) + '%'; }
+            else { el.style.left = '0'; el.style.width = p + '%'; }
+        }
+        function refreshMixerUI() {
+            mxUiQueued = false;
+            ['left', 'right'].forEach(side => {
+                ['trim', 'hi', 'mid', 'low', 'cfx'].forEach(k => setFill(document.getElementById(`mx-${side}-${k}`), mixState[side][k], true));
+                setFill(document.getElementById(`mx-${side}-vol`), mixState[side].vol, false);
+            });
+            const xf = document.getElementById('trackSlider');
+            setFill(document.getElementById('mx-xf'), xf ? xf.value * 1.27 : 63.5, true);
+        }
+        function queueUI() { if (!mxUiQueued) { mxUiQueued = true; requestAnimationFrame(refreshMixerUI); } }
+        function flashCell(id) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.classList.add('flash');
+            setTimeout(() => el.classList.remove('flash'), 150);
+        }
+
+        function toggleMidiPanel() { document.getElementById('midiPanel').classList.toggle('open'); refreshMixerUI(); }
+
+        function startLearn(target) {
+            document.querySelectorAll('.mx-cell.learning').forEach(e => e.classList.remove('learning'));
+            const hint = document.getElementById('midiHint');
+            if (mxLearn === target) { mxLearn = null; hint.className = 'mx-hint'; hint.textContent = 'Click any cell, then move that control on the DDJ-FLX2 to re-map it.'; return; }
+            mxLearn = target;
+            document.querySelectorAll(`.mx-cell[data-t="${target}"]`).forEach(e => e.classList.add('learning'));
+            hint.className = 'mx-hint learn';
+            hint.textContent = target.endsWith('.pads') ? 'Press PAD 1 (top-left) on that deck…'
+                : (target.endsWith('.play') || target.endsWith('.cue')) ? 'Press the button on the controller…'
+                : 'Move the knob / fader on the controller…';
+        }
+
+        function finishLearn(msg) {
+            const hint = document.getElementById('midiHint');
+            document.querySelectorAll('.mx-cell.learning').forEach(e => e.classList.remove('learning'));
+            hint.className = 'mx-hint';
+            hint.textContent = `Mapped ${mxLearn.toUpperCase()} → ${msg}`;
+            mxLearn = null;
+            mxSave();
+        }
+
+        function resetMidiMap() {
+            mxCustom = {}; mxPads = JSON.parse(JSON.stringify(MX_DEFAULT_PADS)); mxLearn = null;
+            mxSave(); buildMixerUI();
+            document.getElementById('midiHint').textContent = 'Default DDJ-FLX2 mapping restored.';
+        }
+
+        // ---------- MIDI input ----------
+        function mxLookup(key) { return mxCustom.hasOwnProperty(key) ? mxCustom[key] : MX_DEFAULT_MAP[key]; }
+
+        function setControl(target, v) {
+            if (target === 'xf') {
+                const sl = document.getElementById('trackSlider');
+                const val = Math.round(v / 127 * 100);
+                if (String(sl.value) !== String(val)) { sl.value = val; updateCrossfade(val); }
+            } else {
+                const [side, k] = target.split('.');
+                mixState[side][k] = v;
+                applyDeck(side);
+            }
+            queueUI();
+        }
+
+        function triggerButton(target) {
+            const [side, k] = target.split('.');
+            const loaded = USE_HTML5_AUDIO ? tracks[side].audioElement : tracks[side].buffer;
+            flashCell(`mx-${side}-${k}`);
+            if (!loaded) { showNotification(`Load a track on the ${side} deck first`, 'error'); return; }
+            if (k === 'play') togglePlay(side);
+            else if (k === 'cue') stopTrack(side);
+        }
+
+        function onMidiMessage(e) {
+            const st = e.data[0], d1 = e.data[1], d2 = e.data.length > 2 ? e.data[2] : 0;
+            const type = st & 0xF0, ch = st & 0x0F;
+            if (type !== 0xB0 && type !== 0x90 && type !== 0x80) return;
+            const noteOn = type === 0x90 && d2 > 0;
+
+            const pill = document.getElementById('midiPill');
+            pill.classList.add('activity');
+            clearTimeout(mxActTimer);
+            mxActTimer = setTimeout(() => pill.classList.remove('activity'), 80);
+            document.getElementById('midiMon').textContent =
+                `${type === 0xB0 ? 'CC' : 'NOTE'}  ch ${ch + 1}  #${d1} (0x${d1.toString(16).toUpperCase().padStart(2, '0')})  = ${d2}`;
+
+            // MIDI learn
+            if (mxLearn) {
+                const isButton = /\.(play|cue|pads)$/.test(mxLearn);
+                if (isButton && noteOn) {
+                    if (mxLearn.endsWith('.pads')) {
+                        mxPads[mxLearn.split('.')[0]] = { ch: [ch], base: d1 };
+                    } else {
+                        Object.keys(mxCustom).forEach(k => { if (mxCustom[k] === mxLearn) delete mxCustom[k]; });
+                        mxCustom['n' + ch + ':' + d1] = mxLearn;
+                    }
+                    finishLearn(`NOTE ch ${ch + 1} #${d1}`);
+                } else if (!isButton && type === 0xB0 && !(d1 >= 32 && d1 < 64)) {   // skip 14-bit LSB CCs
+                    Object.keys(mxCustom).forEach(k => { if (mxCustom[k] === mxLearn) delete mxCustom[k]; });
+                    mxCustom['cc' + ch + ':' + d1] = mxLearn;
+                    finishLearn(`CC ch ${ch + 1} #${d1}`);
+                }
+                return;
+            }
+
+            if (type === 0xB0) {
+                const t = mxLookup('cc' + ch + ':' + d1);
+                if (t) setControl(t, d2);
+                return;
+            }
+            if (!noteOn) return;
+
+            const t = mxLookup('n' + ch + ':' + d1);
+            if (t) { triggerButton(t); return; }
+
+            // Pads: LEFT deck 8 pads → bottom 8 app pads, RIGHT deck 8 pads → top 8 app pads
+            for (const side of ['left', 'right']) {
+                const pm = mxPads[side];
+                if (pm && pm.ch.indexOf(ch) !== -1) {
+                    const n = ((d1 - pm.base) % 8 + 8) % 8;
+                    window.playPad(side === 'left' ? 8 + n : n);
+                    flashCell(`mx-${side}-pads`);
+                    return;
+                }
+            }
+        }
+
+        function bindMidiInputs() {
+            const names = [];
+            midiAccess.inputs.forEach(input => { input.onmidimessage = onMidiMessage; names.push(input.name); });
+            const pill = document.getElementById('midiPill');
+            const dev = names.find(n => /FLX2|DDJ|Pioneer|AlphaTheta/i.test(n)) || names[0];
+            pill.classList.toggle('connected', !!dev);
+            document.getElementById('midiPillText').textContent = dev ? (/FLX2/i.test(dev) ? 'DDJ-FLX2' : 'MIDI ✓') : 'MIDI';
+            document.getElementById('midiDevice').textContent = dev
+                ? `Connected: ${names.join(', ')}`
+                : 'No controller detected — plug in the DDJ-FLX2 via USB.';
+            if (dev && !bindMidiInputs.announced) { bindMidiInputs.announced = true; showNotification(`🎛️ ${dev} connected`, 'success'); }
+            if (!dev) bindMidiInputs.announced = false;
+        }
+
+        if (!USE_HTML5_AUDIO) document.body.classList.add('rgb-wave');
+        buildMixerUI();
+        if (navigator.requestMIDIAccess) {
+            document.getElementById('midiPill').style.display = 'flex';
+            navigator.requestMIDIAccess({ sysex: false }).then(access => {
+                midiAccess = access;
+                bindMidiInputs();
+                access.onstatechange = bindMidiInputs;
+            }).catch(err => {
+                console.warn('MIDI access denied:', err);
+                document.getElementById('midiDevice').textContent = 'MIDI permission was blocked — allow MIDI for this site in the browser.';
+            });
+        }
+
+    </script>
 </body>
 </html>
