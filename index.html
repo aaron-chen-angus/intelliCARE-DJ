@@ -1607,6 +1607,66 @@
             font-size: 10px; font-family: inherit;
         }
         @keyframes mxBlink { 50% { border-color: transparent; } }
+
+        /* ===== Performance pads: two banks (left = deck 1, right = deck 2) ===== */
+        .pads-container.banked {
+            display: flex !important;
+            flex-direction: row;
+            gap: 14px;
+            grid-template-columns: none;
+            grid-template-rows: none;
+        }
+        .pad-bank { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; gap: 6px; }
+        .bank-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+        .bank-title { font-size: 9px; letter-spacing: 1.5px; color: #999; font-weight: 700; text-transform: uppercase; }
+        .bank-modes { display: flex; gap: 4px; }
+        .bank-mode {
+            background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.15); color: #aaa;
+            font-size: 9px; font-weight: 700; letter-spacing: 1px; padding: 4px 8px; border-radius: 5px;
+            cursor: pointer; font-family: inherit;
+        }
+        .bank-mode:hover { border-color: #00d4ff; color: #fff; }
+        .bank-mode.active { background: #00d4ff; color: #001018; border-color: #00d4ff; }
+        .pad-bank.arming .bank-mode { border-color: #ffcc00; color: #ffcc00; animation: mxBlink 0.5s infinite; }
+        .bank-grid {
+            flex: 1; display: grid; grid-template-columns: repeat(4, 1fr);
+            grid-template-rows: repeat(2, minmax(60px, 1fr)); gap: 8px; min-height: 0;
+        }
+        .keyboard-hint { z-index: 3; }
+        .pad-face {
+            position: absolute; inset: -2px; border-radius: inherit; display: none; z-index: 2;
+            flex-direction: column; align-items: center; justify-content: center; pointer-events: none;
+            background: #14141c; color: #666; text-align: center;
+        }
+        .pad-bank:not(.mode-sampler) .pad-face { display: flex; }
+        .pad-bank:not(.mode-sampler) .drum-pad.has-sound { border-color: rgba(255, 255, 255, 0.1); box-shadow: 0 3px 12px rgba(0, 0, 0, 0.3); }
+        .pf-big { font-size: 18px; font-weight: 800; letter-spacing: 1px; }
+        .pf-sub { font-size: 9px; margin-top: 3px; letter-spacing: 1px; opacity: 0.75; }
+        .pad-face.empty { border: 1px dashed #333; }
+        .pad-face.set { background: var(--pc); color: #000; box-shadow: inset 0 0 18px rgba(255, 255, 255, 0.35); }
+        .pad-face.fx { background: #1b1530; color: #c9b3ff; }
+        .pad-face.fx.on { background: #8a4dff; color: #fff; box-shadow: inset 0 0 22px rgba(255, 255, 255, 0.45); }
+        .pad-face.loop { background: #261807; color: #ffb347; }
+        .pad-face.loop.on { background: #ff9f1a; color: #000; box-shadow: inset 0 0 22px rgba(255, 255, 255, 0.45); }
+
+        /* SYNC button */
+        .deck-btn-row { display: flex; gap: 6px; align-items: center; }
+        .sync-button {
+            padding: 5px 12px; background: rgba(0, 212, 255, 0.12); border: 1px solid #00d4ff; border-radius: 6px;
+            color: #00d4ff; font-size: 9px; font-weight: 700; letter-spacing: 1px; cursor: pointer; font-family: inherit;
+        }
+        .sync-button:hover { background: rgba(0, 212, 255, 0.3); }
+        .sync-button.active { background: #00d4ff; color: #001018; box-shadow: 0 0 12px rgba(0, 212, 255, 0.7); }
+        .bpm-synced { color: #00d4ff !important; }
+
+        @media screen and (max-width: 768px) {
+            .pads-container.banked { flex-direction: column; gap: 8px; }
+            .bank-grid { grid-template-rows: repeat(2, minmax(46px, 1fr)); gap: 5px; }
+            .bank-mode { padding: 3px 5px; font-size: 8px; }
+            .pf-big { font-size: 13px; }
+            .pf-sub { font-size: 7px; }
+            .sync-button { padding: 4px 8px; font-size: 8px; }
+        }
     </style>
 </head>
 <body>
@@ -1857,7 +1917,7 @@
                     
                     // Also start long-press timer for settings
                     pressTimer = setTimeout(() => {
-                        openSettings(index);
+                        padAltAction(index);
                     }, 500);
                 });
                 
@@ -1874,7 +1934,7 @@
                 // Right-click for settings (desktop)
                 pad.addEventListener('contextmenu', (e) => {
                     e.preventDefault();
-                    openSettings(index);
+                    padAltAction(index);
                 });
                 
                 container.appendChild(pad);
@@ -2617,12 +2677,11 @@
             const zH = ch - RGB_OVERVIEW_H - 3;
             const cy = zH / 2;
             const now = rgbCurrentTime(side);
-            const pps = cw / RGB_WINDOW_SEC;
+            const pps = cw / (RGB_WINDOW_SEC * (typeof deckRate === 'function' ? deckRate(side) : 1));
             const mid = cw / 2;
-            const bands = [[w.L, 'rgb(235,35,45)', 1.0], [w.M, 'rgb(35,220,70)', 0.8], [w.H, 'rgb(45,110,255)', 0.6]];
+            const bands = [[w.L, 'rgb(230,40,50)', 1.0], [w.M, 'rgb(40,205,80)', 0.75], [w.H, 'rgb(50,120,255)', 0.5]];
 
-            // Scrolling zoomed waveform (bands added together: R+G=yellow, R+G+B=white)
-            ctx.globalCompositeOperation = 'lighter';
+            // Scrolling zoomed waveform: low (red) behind, mid (green), high (blue) in front
             bands.forEach(([arr, col, k]) => {
                 ctx.fillStyle = col;
                 for (let x = 0; x < cw; x++) {
@@ -2636,7 +2695,6 @@
                     if (h > 0.3) ctx.fillRect(x, cy - h, 1, h * 2);
                 }
             });
-            ctx.globalCompositeOperation = 'source-over';
 
             // Beat grid
             if (w.bpm > 0) {
@@ -2656,12 +2714,12 @@
             ctx.fillStyle = 'rgba(10, 10, 20, 0.35)';
             ctx.fillRect(0, 0, mid, zH);
 
-            // Fixed white playhead in the centre
-            ctx.shadowColor = 'rgba(255,255,255,0.9)';
-            ctx.shadowBlur = 8;
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(Math.round(mid) - 1, 0, 2, zH);
-            ctx.shadowBlur = 0;
+            // Hot cue markers + loop region
+            if (typeof drawDeckMarkers === 'function') drawDeckMarkers(ctx, side, now, pps, mid, zH, cw);
+
+            // Fixed playhead in the centre (thin line, no glow)
+            ctx.fillStyle = 'rgba(255,255,255,0.85)';
+            ctx.fillRect(Math.round(mid), 0, 1, zH);
 
             // Full-track overview strip
             const oy = ch - RGB_OVERVIEW_H;
@@ -2681,7 +2739,6 @@
             }
             ctx.fillStyle = 'rgba(0,0,0,0.5)';
             ctx.fillRect(0, oy, cw, RGB_OVERVIEW_H);
-            ctx.globalCompositeOperation = 'lighter';
             bands.forEach(([, col, k], i) => {
                 ctx.fillStyle = col;
                 const d = w.ov.data[i];
@@ -2690,12 +2747,12 @@
                     if (h > 0.3) ctx.fillRect(x, ocy - h, 1, h * 2);
                 }
             });
-            ctx.globalCompositeOperation = 'source-over';
             const px = (now / w.dur) * cw;
             ctx.fillStyle = 'rgba(10, 10, 20, 0.5)';
             ctx.fillRect(0, oy, px, RGB_OVERVIEW_H);
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(Math.round(px) - 1, oy, 2, RGB_OVERVIEW_H);
+            if (typeof drawOverviewMarkers === 'function') drawOverviewMarkers(ctx, side, oy, RGB_OVERVIEW_H, cw, w.dur);
+            ctx.fillStyle = 'rgba(255,255,255,0.85)';
+            ctx.fillRect(Math.round(px), oy, 1, RGB_OVERVIEW_H);
         }
 
         function rgbLoop(side) {
@@ -2724,7 +2781,7 @@
             const point = (event.changedTouches && event.changedTouches[0]) || (event.touches && event.touches[0]) || event;
             const y = point.clientY - rect.top;
             if (y >= rect.height - RGB_OVERVIEW_H - 3) return fallback;
-            const t = rgbCurrentTime(side) + (x - rect.width / 2) / (rect.width / RGB_WINDOW_SEC);
+            const t = rgbCurrentTime(side) + (x - rect.width / 2) / (rect.width / (RGB_WINDOW_SEC * (typeof deckRate === 'function' ? deckRate(side) : 1)));
             return Math.max(0, Math.min(w.dur - 0.05, t));
         }
 
@@ -3458,7 +3515,11 @@
             'n0:11': 'left.play', 'n1:11': 'right.play', 'n0:12': 'left.cue', 'n1:12': 'right.cue',
             'cc0:33': 'left.jog',  'cc0:34': 'left.scratch',  'cc0:35': 'left.scratch',  'cc0:41': 'left.search',
             'cc1:33': 'right.jog', 'cc1:34': 'right.scratch', 'cc1:35': 'right.scratch', 'cc1:41': 'right.search',
-            'n0:54': 'left.touch', 'n1:54': 'right.touch'
+            'n0:54': 'left.touch', 'n1:54': 'right.touch',
+            'n0:63': 'left.shift', 'n1:63': 'right.shift', 'n0:72': 'left.modesel', 'n1:72': 'right.modesel',
+            'n0:88': 'left.sync',  'n1:88': 'right.sync',
+            'n0:27': 'left.mode_hotcue',  'n0:30': 'left.mode_padfx',  'n0:109': 'left.mode_loop',  'n0:34': 'left.mode_sampler',
+            'n1:27': 'right.mode_hotcue', 'n1:30': 'right.mode_padfx', 'n1:109': 'right.mode_loop', 'n1:34': 'right.mode_sampler'
         };
         const MX_DEFAULT_PADS = { left: { ch: [7, 8], base: 0 }, right: { ch: [9, 10], base: 0 } };
         const MX_STORE = 'icdj_midi_map_v1';
@@ -3494,7 +3555,7 @@
             c.lp.type = 'lowpass';     c.lp.frequency.value = 20000; c.lp.Q.value = 0.7;
             c.hp.type = 'highpass';    c.hp.frequency.value = 20;    c.hp.Q.value = 0.7;
             c.input.connect(c.low); c.low.connect(c.mid); c.mid.connect(c.high); c.high.connect(c.lp);
-            c.lp.connect(c.hp); c.hp.connect(c.fader); c.fader.connect(c.xfade); c.xfade.connect(ctx.destination);
+            c.lp.connect(c.hp); buildFx(ctx, c); c.fader.connect(c.xfade); c.xfade.connect(ctx.destination);
             deckChains[side] = c;
             applyDeck(side);
             return c;
@@ -3520,12 +3581,13 @@
 
         // ---------- Mixer panel UI ----------
         const MX_ROWS = [['trim', 'TRIM'], ['hi', 'HI'], ['mid', 'MID'], ['low', 'LOW'], ['cfx', 'CFX'], ['vol', 'VOL'],
-                         ['play', 'PLAY'], ['cue', 'CUE'], ['pads', 'PADS'], ['jog', 'JOG'], ['touch', 'TOUCH']];
+                         ['play', 'PLAY'], ['cue', 'CUE'], ['pads', 'PADS'], ['jog', 'JOG'], ['touch', 'TOUCH'],
+                         ['sync', 'SYNC'], ['shift', 'SHIFT'], ['modesel', 'SHIFT+CUE']];
         function buildMixerUI() {
             const g = document.getElementById('mxGrid');
             let h = '<div class="mx-colhead">LEFT</div><div></div><div class="mx-colhead">RIGHT</div>';
             MX_ROWS.forEach(([k, label]) => {
-                const cell = side => (k === 'play' || k === 'cue' || k === 'pads' || k === 'jog' || k === 'touch')
+                const cell = side => ['play', 'cue', 'pads', 'jog', 'touch', 'sync', 'shift', 'modesel'].indexOf(k) !== -1
                     ? `<div class="mx-cell mx-btn-cell" data-t="${side}.${k}" id="mx-${side}-${k}">${k === 'pads' ? (side === 'left' ? 'bottom 8' : 'top 8') : k === 'jog' ? '⟳' : '●'}</div>`
                     : `<div class="mx-cell" data-t="${side}.${k}"><div class="mx-fill${k === 'hi' ? ' hi' : k === 'mid' ? ' mi' : k === 'low' ? ' lo' : ''}" id="mx-${side}-${k}"></div></div>`;
                 h += cell('left') + `<div class="mx-label">${label}</div>` + cell('right');
@@ -3631,7 +3693,7 @@
 
             // MIDI learn
             if (mxLearn) {
-                const isButton = /\.(play|cue|pads|touch)$/.test(mxLearn);
+                const isButton = /\.(play|cue|pads|touch|sync|shift|modesel)$/.test(mxLearn);
                 const isJog = /\.jog$/.test(mxLearn);
                 if (isButton && noteOn) {
                     if (mxLearn.endsWith('.pads')) {
@@ -3656,19 +3718,14 @@
                 return;
             }
             const tn = mxLookup('n' + ch + ':' + d1);
-            if (tn && tn.endsWith('.touch')) { jogTouch(tn.split('.')[0], noteOn); return; }
-            if (!noteOn) return;
+            if (tn) { midiButton(tn, noteOn); return; }
 
-            const t = mxLookup('n' + ch + ':' + d1);
-            if (t) { triggerButton(t); return; }
-
-            // Pads: LEFT deck 8 pads → bottom 8 app pads, RIGHT deck 8 pads → top 8 app pads
+            // Pads: LEFT deck 8 pads → left bank, RIGHT deck 8 pads → right bank (mode-aware)
             for (const side of ['left', 'right']) {
                 const pm = mxPads[side];
                 if (pm && pm.ch.indexOf(ch) !== -1) {
-                    const n = ((d1 - pm.base) % 8 + 8) % 8;
-                    window.playPad(side === 'left' ? 8 + n : n);
-                    flashCell(`mx-${side}-pads`);
+                    midiPad(side, ch, d1, noteOn, pm);
+                    if (noteOn) flashCell(`mx-${side}-pads`);
                     return;
                 }
             }
@@ -3741,35 +3798,21 @@
             if (on) jogHold(side); else jogRelease(side);
         }
 
-        // Outer-ring nudge: temporary speed change, with the deck clock corrected afterwards
+        // Outer-ring nudge: temporary speed change on top of SYNC tempo
         function jogNudgeFinalize(side) {
-            const js = jogState[side], n = js.nudge, t = tracks[side];
+            const js = jogState[side];
             clearTimeout(js.nudgeTimer);
-            if (!n) return;
-            js.nudge = null;
-            if (USE_HTML5_AUDIO) {
-                if (t.audioElement) t.audioElement.playbackRate = 1;
-            } else if (t.source === n.src && audioContext) {
-                t.startTime -= (n.rate - 1) * (audioContext.currentTime - n.since);
-                t.source.playbackRate.value = 1;
-            }
+            if (perf[side].nudge === 1) return;
+            deckTick(side);
+            perf[side].nudge = 1;
+            applyRate(side);
         }
         function jogNudge(side, delta) {
-            const js = jogState[side], t = tracks[side];
-            const rate = Math.max(0.6, Math.min(1.4, 1 + delta * JOG_NUDGE));
-            if (USE_HTML5_AUDIO) {
-                clearTimeout(js.nudgeTimer);
-                if (t.audioElement) t.audioElement.playbackRate = rate;
-                js.nudge = { rate };
-            } else {
-                if (!t.source || !audioContext) return;
-                if (js.nudge && js.nudge.src === t.source) {
-                    t.startTime -= (js.nudge.rate - 1) * (audioContext.currentTime - js.nudge.since);
-                }
-                clearTimeout(js.nudgeTimer);
-                t.source.playbackRate.value = rate;
-                js.nudge = { rate, since: audioContext.currentTime, src: t.source };
-            }
+            const js = jogState[side];
+            deckTick(side);
+            perf[side].nudge = Math.max(0.6, Math.min(1.4, 1 + delta * JOG_NUDGE));
+            applyRate(side);
+            clearTimeout(js.nudgeTimer);
             js.nudgeTimer = setTimeout(() => jogNudgeFinalize(side), 90);
         }
 
@@ -3816,6 +3859,597 @@
             });
         }
 
+    </script>
+    <script>
+        // ===================== PERFORMANCE: SYNC · HOT CUE · PAD FX · LOOP · SAMPLER =====================
+        const PF_SIDES = ['left', 'right'];
+        const pfOther = s => s === 'left' ? 'right' : 'left';
+        const HC_COLORS = ['#ff3b3b', '#ff8a00', '#ffd400', '#2ee86a', '#00d4ff', '#3b6bff', '#a64dff', '#ff4fb8'];
+        const HC_LETTERS = 'ABCDEFGH';
+        const LOOP_BEATS = [0.25, 0.5, 1, 2, 4, 8, 16, 32];
+        const LOOP_LABELS = ['1/4', '1/2', '1', '2', '4', '8', '16', '32'];
+        const FX_NAMES = ['ECHO', 'REVERB', 'FLANGER', 'PHASER', 'FILTER', 'GATE', 'ROLL', 'BRAKE'];
+        const FX_SUBS = ['1/2 BEAT', 'HOLD', 'HOLD', 'HOLD', 'SWEEP', '1/8 BEAT', '1/4 BEAT', 'HOLD'];
+        const PAD_MODES = ['hotcue', 'padfx', 'loop', 'sampler'];
+        const MODE_LABELS = { hotcue: 'HOT CUE', padfx: 'PAD FX', loop: 'LOOP', sampler: 'SAMPLER' };
+        const HC_STORE = 'icdj_hotcues_v1';
+
+        function pfDeck() {
+            return { mode: 'sampler', sync: null, nudge: 1, loop: null, cues: Array(8).fill(null), key: null,
+                     clock: 0, fx: new Set(), roll: false, brake: false, armed: 0, armTimer: null,
+                     shift: false, lastBlock: null, cueSetAt: Array(8).fill(0) };
+        }
+        const perf = { left: pfDeck(), right: pfDeck() };
+        const padHeld = {};
+        let kbShift = false, lastRightClick = 0, fxMobileWarned = false;
+        let hcStore = {};
+        try { hcStore = JSON.parse(localStorage.getItem(HC_STORE) || '{}') || {}; } catch (e) {}
+
+        // ---------- Deck clock: tempo (sync × nudge) and loop-aware position ----------
+        function deckRate(side) {
+            const p = perf[side];
+            return (p.sync ? p.sync.rate : 1) * p.nudge;
+        }
+        function deckTick(side) {
+            const t = tracks[side], p = perf[side];
+            if (USE_HTML5_AUDIO) {
+                const a = t.audioElement, L = p.loop;
+                if (L && a && t.isPlaying && a.currentTime >= L.e) a.currentTime = L.s + ((a.currentTime - L.s) % (L.e - L.s));
+                return;
+            }
+            if (!t.isPlaying || !audioContext || !t.buffer) return;
+            const now = audioContext.currentTime;
+            t.startTime -= (deckRate(side) - 1) * (now - p.clock);
+            p.clock = now;
+            const raw = now - t.startTime, L = p.loop, d = t.buffer.duration;
+            if (L && raw >= L.e) t.startTime += Math.floor((raw - L.s) / (L.e - L.s)) * (L.e - L.s);
+            else if (raw >= d) t.startTime += d * Math.floor(raw / d);
+        }
+        setInterval(() => { deckTick('left'); deckTick('right'); }, 10);
+
+        function deckPos(side) {
+            const t = tracks[side];
+            if (USE_HTML5_AUDIO) return t.audioElement ? t.audioElement.currentTime : 0;
+            if (!t.buffer) return 0;
+            if (t.isPlaying && audioContext) {
+                deckTick(side);
+                const d = t.buffer.duration, r = audioContext.currentTime - t.startTime;
+                return ((r % d) + d) % d;
+            }
+            return t.pauseTime || 0;
+        }
+
+        function applyRate(side) {
+            const t = tracks[side], r = deckRate(side);
+            if (USE_HTML5_AUDIO) { if (t.audioElement) t.audioElement.playbackRate = r; }
+            else if (t.source && !perf[side].brake) t.source.playbackRate.value = r;
+            updateBpmDisplay(side);
+        }
+
+        function updateBpmDisplay(side) {
+            const p = perf[side], bpm = tracks[side].bpm;
+            const btn = document.getElementById(side + 'Sync');
+            if (btn) btn.classList.toggle('active', !!p.sync);
+            const el = document.getElementById(side + 'BPM');
+            if (!el || !bpm) return;
+            el.textContent = p.sync ? (bpm * p.sync.rate).toFixed(1) : Math.round(bpm);
+            el.classList.toggle('bpm-synced', !!p.sync);
+        }
+
+        function refreshWave(side) {
+            if (!USE_HTML5_AUDIO && rgbWave[side] && !tracks[side].isPlaying) renderRGB(side);
+        }
+
+        // Jump to a position; keeps playing if playing (or starts when startPlay)
+        function deckJump(side, pos, startPlay) {
+            const t = tracks[side];
+            if (!jogLoaded(side)) return;
+            const dur = jogDuration(side) || 0;
+            pos = Math.max(0, dur ? Math.min(dur - 0.05, pos) : pos);
+            const was = t.isPlaying;
+            if (was) pauseTrack(side);
+            t.pauseTime = pos;
+            if (USE_HTML5_AUDIO && t.audioElement) t.audioElement.currentTime = pos;
+            if (was || startPlay) playTrack(side); else jogSeek(side, 0);
+        }
+
+        // ---------- Wrappers on the existing transport ----------
+        const pfPrevPlay = playTrack;
+        playTrack = function(side) {
+            const p = perf[side], t = tracks[side];
+            if (p.loop) {
+                const pt = t.pauseTime || 0;
+                if (pt < p.loop.s - 0.02 || pt > p.loop.e + 0.02) setLoop(side, null);
+            }
+            if (USE_HTML5_AUDIO && t.audioElement) t.audioElement.playbackRate = deckRate(side);
+            const res = pfPrevPlay(side);
+            if (!USE_HTML5_AUDIO && t.source) {
+                t.source.playbackRate.value = deckRate(side);
+                if (p.loop) { t.source.loopStart = p.loop.s; t.source.loopEnd = p.loop.e; }
+                p.clock = audioContext.currentTime;
+            }
+            return res;
+        };
+
+        const pfPrevPause = pauseTrack;
+        pauseTrack = function(side) {
+            deckTick(side);
+            perf[side].roll = false;
+            perf[side].brake = false;
+            return pfPrevPause(side);
+        };
+
+        // SYNC: pressing play on a synced deck lands it on the beat of the playing deck
+        const pfPrevToggle = togglePlay;
+        togglePlay = function(side) {
+            if (!USE_HTML5_AUDIO && !tracks[side].isPlaying && perf[side].sync &&
+                tracks[side].buffer && tracks[pfOther(side)].isPlaying) {
+                const np = phaseTarget(side);
+                if (np !== null) tracks[side].pauseTime = np;
+            }
+            return pfPrevToggle(side);
+        };
+
+        const pfPrevEject = ejectTrack;
+        ejectTrack = function(side) {
+            const r = pfPrevEject(side);
+            resetDeckPerf(side, null);
+            return r;
+        };
+
+        const pfPrevDraw = drawWaveform;
+        drawWaveform = function(buffer, side) {
+            resetDeckPerf(side, tracks[side].name);
+            return pfPrevDraw(buffer, side);
+        };
+        const pfPrevDrawSimple = drawSimpleWaveform;
+        drawSimpleWaveform = function(side) {
+            resetDeckPerf(side, tracks[side].name);
+            return pfPrevDrawSimple(side);
+        };
+
+        // New track on a deck: sync off, loop off, FX off, recall cached hot cues
+        function resetDeckPerf(side, name) {
+            const p = perf[side];
+            Array.from(p.fx).forEach(n => fxOff(side, n));
+            p.sync = null; p.nudge = 1; p.loop = null; p.roll = false; p.brake = false;
+            p.key = name || null;
+            const saved = p.key && hcStore[p.key];
+            p.cues = Array(8).fill(null);
+            if (Array.isArray(saved)) saved.slice(0, 8).forEach((c, i) => { p.cues[i] = (typeof c === 'number') ? c : null; });
+            updateBpmDisplay(side);
+            renderBank(side);
+        }
+
+        // ---------- BEAT SYNC ----------
+        function beatInfo(side) {
+            const bpm = tracks[side].bpm;
+            if (!bpm) return null;
+            const w = rgbWave[side];
+            return { len: 60 / bpm, off: w ? w.offset : 0 };
+        }
+        function phaseTarget(side) {
+            const o = pfOther(side), bs = beatInfo(side), bo = beatInfo(o);
+            if (!bs || !bo) return null;
+            const ps = tracks[side].isPlaying ? deckPos(side) : (tracks[side].pauseTime || 0);
+            let d = (deckPos(o) - bo.off) / bo.len - (ps - bs.off) / bs.len;
+            d -= Math.round(d);
+            let np = ps + d * bs.len;
+            if (np < 0) np += bs.len;
+            return np;
+        }
+        function toggleSync(side) {
+            const p = perf[side], o = pfOther(side);
+            if (!jogLoaded(side)) { showNotification(`Load a track on the ${side} deck first`, 'error'); return; }
+            if (p.sync) {
+                deckTick(side); p.sync = null; applyRate(side);
+                showNotification(`${side.toUpperCase()} back to original ${Math.round(tracks[side].bpm)} BPM`, 'success');
+                return;
+            }
+            const own = tracks[side].bpm, oBpm = tracks[o].bpm;
+            if (!jogLoaded(o) || !oBpm) { showNotification(`Load a track on the ${o} deck to sync to`, 'error'); return; }
+            if (!own) { showNotification('This track has no BPM', 'error'); return; }
+            let ratio = oBpm * (perf[o].sync ? perf[o].sync.rate : 1) / own;
+            while (ratio > 1.5) ratio /= 2;
+            while (ratio < 0.67) ratio *= 2;
+            deckTick(side);
+            p.sync = { rate: ratio };
+            applyRate(side);
+            if (!USE_HTML5_AUDIO && tracks[side].isPlaying && tracks[o].isPlaying) {
+                const np = phaseTarget(side);
+                if (np !== null) deckJump(side, np);
+            }
+            showNotification(`${side.toUpperCase()} synced → ${(own * ratio).toFixed(1)} BPM`, 'success');
+        }
+
+        // ---------- HOT CUES ----------
+        function hcSave(side) {
+            const p = perf[side];
+            if (!p.key) return;
+            if (p.cues.some(c => c !== null)) hcStore[p.key] = p.cues.slice(); else delete hcStore[p.key];
+            try { localStorage.setItem(HC_STORE, JSON.stringify(hcStore)); } catch (e) {}
+        }
+        function fmtCue(s) {
+            const m = Math.floor(s / 60), r = s - m * 60;
+            return m + ':' + (r < 10 ? '0' : '') + r.toFixed(1);
+        }
+        function hotCuePress(side, n, shifted) {
+            const p = perf[side];
+            if (!jogLoaded(side)) { showNotification(`Load a track on the ${side} deck first`, 'error'); return; }
+            if (shifted) {
+                if (p.cues[n] !== null) {
+                    p.cues[n] = null; hcSave(side); renderBank(side); refreshWave(side);
+                    showNotification(`Hot cue ${HC_LETTERS[n]} deleted`, 'success');
+                }
+                return;
+            }
+            if (p.cues[n] === null) {
+                p.cues[n] = deckPos(side); p.cueSetAt[n] = performance.now();
+                hcSave(side); renderBank(side); refreshWave(side);
+            } else {
+                deckJump(side, p.cues[n], true);
+            }
+        }
+        function addCueAt(side, time) {
+            const p = perf[side];
+            const n = p.cues.indexOf(null);
+            if (n === -1) { showNotification('All 8 hot cues are used — Shift+click a pad to delete one', 'error'); return; }
+            p.cues[n] = time; p.cueSetAt[n] = performance.now();
+            hcSave(side); renderBank(side); refreshWave(side);
+            showNotification(`Hot cue ${HC_LETTERS[n]} set at ${fmtCue(time)}`, 'success');
+        }
+
+        // ---------- LOOPS ----------
+        function setLoop(side, L) {
+            const p = perf[side], t = tracks[side];
+            deckTick(side);
+            p.loop = L;
+            if (!USE_HTML5_AUDIO && t.source && !p.roll) {
+                t.source.loopStart = L ? L.s : 0;
+                t.source.loopEnd = L ? L.e : 0;
+            }
+            deckTick(side);
+            renderBank(side); refreshWave(side);
+        }
+        function loopPress(side, n) {
+            const p = perf[side];
+            if (!jogLoaded(side)) { showNotification(`Load a track on the ${side} deck first`, 'error'); return; }
+            if (p.loop && p.loop.n === n) { setLoop(side, null); return; }
+            const len = LOOP_BEATS[n] * 60 / (tracks[side].bpm || 120);
+            const dur = jogDuration(side) || 0;
+            let s = p.loop ? p.loop.s : deckPos(side);
+            if (dur && s + len > dur) s = Math.max(0, dur - len - 0.01);
+            setLoop(side, { s, e: s + len, n });
+        }
+
+        // ---------- PAD FX (desktop Web Audio) ----------
+        function makeImpulse(ctx, sec) {
+            const len = Math.floor(ctx.sampleRate * sec), buf = ctx.createBuffer(2, len, ctx.sampleRate);
+            for (let c = 0; c < 2; c++) {
+                const d = buf.getChannelData(c);
+                for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+            }
+            return buf;
+        }
+        // Called by getDeckChain: hp → fxIn → dry → gate → fader, plus effect sends into the fader
+        function buildFx(ctx, c) {
+            const g = v => { const n = ctx.createGain(); n.gain.value = v; return n; };
+            const lfo = (type, f) => { const o = ctx.createOscillator(); o.type = type; o.frequency.value = f; o.start(); return o; };
+            c.fxIn = g(1); c.dry = g(1); c.gate = g(1);
+            c.hp.connect(c.fxIn); c.fxIn.connect(c.dry); c.dry.connect(c.gate); c.gate.connect(c.fader);
+            // Echo
+            c.echoSend = g(0); c.echo = ctx.createDelay(4); c.echoFb = g(0.55); c.echoOut = g(0.8);
+            c.fxIn.connect(c.echoSend); c.echoSend.connect(c.echo); c.echo.connect(c.echoFb); c.echoFb.connect(c.echo);
+            c.echo.connect(c.echoOut); c.echoOut.connect(c.fader);
+            // Reverb
+            c.revSend = g(0); c.rev = ctx.createConvolver(); c.rev.buffer = makeImpulse(ctx, 2.8); c.revOut = g(0.9);
+            c.fxIn.connect(c.revSend); c.revSend.connect(c.rev); c.rev.connect(c.revOut); c.revOut.connect(c.fader);
+            // Flanger
+            c.flSend = g(0); c.fl = ctx.createDelay(0.05); c.fl.delayTime.value = 0.004; c.flFb = g(0.65);
+            const flD = g(0.0032); lfo('sine', 0.25).connect(flD); flD.connect(c.fl.delayTime);
+            c.fxIn.connect(c.flSend); c.flSend.connect(c.fl); c.fl.connect(c.flFb); c.flFb.connect(c.fl); c.fl.connect(c.fader);
+            // Phaser
+            c.phSend = g(0); const phD = g(800); lfo('sine', 0.35).connect(phD);
+            let prev = c.phSend;
+            for (let i = 0; i < 4; i++) {
+                const ap = ctx.createBiquadFilter(); ap.type = 'allpass'; ap.frequency.value = 1000; ap.Q.value = 0.6;
+                phD.connect(ap.frequency); prev.connect(ap); prev = ap;
+            }
+            prev.connect(c.fader); c.fxIn.connect(c.phSend);
+            // Filter sweep (resonant low-pass, beat-synced LFO)
+            c.fiSend = g(0); c.fi = ctx.createBiquadFilter(); c.fi.type = 'lowpass'; c.fi.frequency.value = 1800; c.fi.Q.value = 9;
+            c.fiLfo = lfo('sine', 0.5); const fiD = g(1500); c.fiLfo.connect(fiD); fiD.connect(c.fi.frequency);
+            c.fxIn.connect(c.fiSend); c.fiSend.connect(c.fi); c.fi.connect(c.fader);
+            // Gate (trans)
+            c.gateLfo = lfo('square', 4); c.gateDepth = g(0); c.gateLfo.connect(c.gateDepth); c.gateDepth.connect(c.gate.gain);
+        }
+        function fxDry(side) {
+            const c = deckChains[side], p = perf[side];
+            if (!c) return;
+            const v = p.fx.has(4) ? 0 : p.fx.has(3) ? 0.7 : 1;
+            c.dry.gain.setTargetAtTime(v, c.dry.context.currentTime, 0.01);
+        }
+        function fxOn(side, n) {
+            const p = perf[side], t = tracks[side];
+            if (USE_HTML5_AUDIO) {
+                if (!fxMobileWarned) { fxMobileWarned = true; showNotification('Pad FX need the desktop version (Chrome / Edge on a computer)', 'error'); }
+                return;
+            }
+            if (!t.buffer) { showNotification(`Load a track on the ${side} deck first`, 'error'); return; }
+            const c = getDeckChain(side), now = c.fxIn.context.currentTime, tc = 0.01;
+            const beat = 60 / ((t.bpm || 120) * deckRate(side));
+            p.fx.add(n);
+            switch (n) {
+                case 0: c.echo.delayTime.setValueAtTime(beat / 2, now); c.echoSend.gain.setTargetAtTime(1, now, tc); break;
+                case 1: c.revSend.gain.setTargetAtTime(1, now, tc); break;
+                case 2: c.flSend.gain.setTargetAtTime(0.9, now, tc); break;
+                case 3: c.phSend.gain.setTargetAtTime(1, now, tc); break;
+                case 4: c.fiLfo.frequency.setValueAtTime(1 / (beat * 2), now); c.fiSend.gain.setTargetAtTime(1, now, tc); break;
+                case 5: c.gateLfo.frequency.setValueAtTime(2 / beat, now); c.gate.gain.setValueAtTime(0.5, now); c.gateDepth.gain.setValueAtTime(0.5, now); break;
+                case 6:
+                    if (t.isPlaying && t.source) {
+                        const pos = deckPos(side), len = 60 / (t.bpm || 120) / 4;
+                        t.source.loopStart = pos; t.source.loopEnd = pos + len;
+                        p.roll = true;
+                    }
+                    break;
+                case 7:
+                    if (t.isPlaying && t.source) {
+                        const pr = t.source.playbackRate;
+                        p.brake = true;
+                        pr.cancelScheduledValues(now); pr.setValueAtTime(pr.value, now);
+                        pr.linearRampToValueAtTime(0.01, now + Math.max(0.5, beat * 2));
+                    }
+                    break;
+            }
+            fxDry(side);
+            renderBank(side);
+        }
+        function fxOff(side, n) {
+            const p = perf[side], t = tracks[side], c = deckChains[side];
+            p.fx.delete(n);
+            if (c) {
+                const now = c.fxIn.context.currentTime, tc = 0.02;
+                switch (n) {
+                    case 0: c.echoSend.gain.setTargetAtTime(0, now, tc); break;
+                    case 1: c.revSend.gain.setTargetAtTime(0, now, tc); break;
+                    case 2: c.flSend.gain.setTargetAtTime(0, now, tc); break;
+                    case 3: c.phSend.gain.setTargetAtTime(0, now, tc); break;
+                    case 4: c.fiSend.gain.setTargetAtTime(0, now, tc); break;
+                    case 5: c.gateDepth.gain.setValueAtTime(0, now); c.gate.gain.setValueAtTime(1, now); break;
+                }
+                fxDry(side);
+            }
+            // Roll / Brake release: resume where the track would have been (slip)
+            if ((n === 6 && p.roll) || (n === 7 && p.brake)) {
+                p.roll = false; p.brake = false;
+                if (t.isPlaying) { pauseTrack(side); playTrack(side); }
+            }
+            renderBank(side);
+        }
+
+        // ---------- Pad banks / modes ----------
+        function setPadMode(side, mode) {
+            const p = perf[side];
+            if (PAD_MODES.indexOf(mode) === -1) return;
+            if (p.mode === 'padfx' && mode !== 'padfx') Array.from(p.fx).forEach(n => fxOff(side, n));
+            p.mode = mode;
+            renderBank(side);
+            showNotification(`${side.toUpperCase()} PADS · ${MODE_LABELS[mode]}`, 'success');
+        }
+        function armModeSelect(side) {
+            const p = perf[side], bank = document.getElementById(side + 'Bank');
+            p.armed = performance.now();
+            if (bank) bank.classList.add('arming');
+            clearTimeout(p.armTimer);
+            p.armTimer = setTimeout(() => { p.armed = 0; if (bank) bank.classList.remove('arming'); }, 4000);
+            showNotification(`${side.toUpperCase()}: pad 1 HOT CUE · 2 PAD FX · 3 LOOP · 4 SAMPLER`, 'success');
+        }
+        function renderBank(side) {
+            const p = perf[side], bank = document.getElementById(side + 'Bank');
+            if (!bank) return;
+            bank.classList.remove('mode-hotcue', 'mode-padfx', 'mode-loop', 'mode-sampler');
+            bank.classList.add('mode-' + p.mode);
+            bank.querySelectorAll('.bank-mode').forEach(b => b.classList.toggle('active', b.dataset.mode === p.mode));
+            for (let n = 0; n < 8; n++) {
+                const pd = pads[side === 'left' ? 8 + n : n];
+                const face = pd && pd.element.querySelector('.pad-face');
+                if (!face) continue;
+                if (p.mode === 'hotcue') {
+                    const c = p.cues[n];
+                    face.className = 'pad-face ' + (c !== null ? 'set' : 'empty');
+                    face.style.setProperty('--pc', HC_COLORS[n]);
+                    face.style.color = c !== null ? '' : HC_COLORS[n];
+                    face.innerHTML = `<div class="pf-big">${HC_LETTERS[n]}</div><div class="pf-sub">${c !== null ? fmtCue(c) : 'TAP TO SET'}</div>`;
+                } else if (p.mode === 'padfx') {
+                    face.className = 'pad-face fx' + (p.fx.has(n) ? ' on' : '');
+                    face.style.color = '';
+                    face.innerHTML = `<div class="pf-big">${FX_NAMES[n]}</div><div class="pf-sub">${FX_SUBS[n]}</div>`;
+                } else if (p.mode === 'loop') {
+                    face.className = 'pad-face loop' + (p.loop && p.loop.n === n ? ' on' : '');
+                    face.style.color = '';
+                    face.innerHTML = `<div class="pf-big">${LOOP_LABELS[n]}</div><div class="pf-sub">${LOOP_BEATS[n] > 1 ? 'BEATS' : 'BEAT'}</div>`;
+                } else {
+                    face.className = 'pad-face';
+                    face.innerHTML = '';
+                }
+            }
+        }
+
+        // Pad press / release (screen, keyboard, MIDI)
+        function padDown(index, shifted) {
+            const side = index >= 8 ? 'left' : 'right', n = index % 8, p = perf[side];
+            if (p.mode === 'sampler') return pfPrevPlayPad(index);
+            if (performance.now() - lastRightClick < 60) return;   // right-click handled by padAltAction
+            if (padHeld[index]) return;                              // ignore key auto-repeat
+            padHeld[index] = true;
+            const el = pads[index].element;
+            el.classList.add('pressed');
+            setTimeout(() => el.classList.remove('pressed'), 150);
+            if (p.mode === 'hotcue') hotCuePress(side, n, shifted);
+            else if (p.mode === 'padfx') fxOn(side, n);
+            else if (p.mode === 'loop') loopPress(side, n);
+        }
+        function padUp(index) {
+            if (!padHeld[index]) return;
+            padHeld[index] = false;
+            const side = index >= 8 ? 'left' : 'right', n = index % 8;
+            if (perf[side].fx.has(n)) fxOff(side, n);
+        }
+        // Right-click / long-press on a pad
+        function padAltAction(index) {
+            const side = index >= 8 ? 'left' : 'right', n = index % 8, p = perf[side];
+            if (p.mode === 'sampler') return openSettings(index);
+            if (p.mode === 'hotcue' && performance.now() - p.cueSetAt[n] > 700) hotCuePress(side, n, true);
+        }
+
+        const pfPrevPlayPad = window.playPad;
+        window.playPad = function(index) { return padDown(index, kbShift); };
+
+        document.addEventListener('mousedown', e => { if (e.button === 2) lastRightClick = performance.now(); }, true);
+        document.addEventListener('keydown', e => { if (e.key === 'Shift') kbShift = true; });
+        document.addEventListener('keyup', e => {
+            if (e.key === 'Shift') { kbShift = false; return; }
+            const k = e.key.toLowerCase();
+            if (keyboardMap.hasOwnProperty(k)) padUp(keyboardMap[k]);
+        });
+        window.addEventListener('blur', () => { kbShift = false; Object.keys(padHeld).forEach(i => padUp(+i)); });
+
+        function buildBanks() {
+            const cont = document.getElementById('padsContainer');
+            cont.classList.add('banked');
+            const mk = side => {
+                const b = document.createElement('div');
+                b.className = 'pad-bank mode-sampler';
+                b.id = side + 'Bank';
+                b.innerHTML = `<div class="bank-head"><span class="bank-title">${side === 'left' ? 'Deck 1 · Left pads' : 'Deck 2 · Right pads'}</span>` +
+                    `<div class="bank-modes">${PAD_MODES.map(m => `<button class="bank-mode" data-mode="${m}">${MODE_LABELS[m]}</button>`).join('')}</div></div>` +
+                    `<div class="bank-grid"></div>`;
+                b.querySelectorAll('.bank-mode').forEach(btn => btn.addEventListener('click', () => setPadMode(side, btn.dataset.mode)));
+                return b;
+            };
+            const L = mk('left'), R = mk('right');
+            cont.appendChild(L); cont.appendChild(R);
+            const lg = L.querySelector('.bank-grid'), rg = R.querySelector('.bank-grid');
+            pads.forEach((pd, i) => {
+                const face = document.createElement('div');
+                face.className = 'pad-face';
+                pd.element.appendChild(face);
+                (i < 8 ? rg : lg).appendChild(pd.element);
+                ['mouseup', 'mouseleave', 'touchend', 'touchcancel'].forEach(ev => pd.element.addEventListener(ev, () => padUp(i)));
+            });
+            PF_SIDES.forEach(renderBank);
+        }
+
+        // SYNC buttons next to EJECT
+        function buildSyncButtons() {
+            PF_SIDES.forEach(side => {
+                const ej = document.getElementById(side + 'Eject');
+                if (!ej) return;
+                const row = document.createElement('div');
+                row.className = 'deck-btn-row';
+                ej.parentNode.insertBefore(row, ej);
+                row.appendChild(ej);
+                const b = document.createElement('button');
+                b.className = 'sync-button'; b.id = side + 'Sync'; b.textContent = 'SYNC';
+                b.title = 'Beat-match this deck to the other deck (press again to restore original BPM)';
+                b.addEventListener('click', () => toggleSync(side));
+                row.appendChild(b);
+            });
+        }
+
+        // ---------- Waveform: cue markers, loop region, add-cue by click ----------
+        function drawDeckMarkers(ctx, side, now, pps, mid, zH, cw) {
+            const p = perf[side];
+            if (p.loop) {
+                const x1 = mid + (p.loop.s - now) * pps, x2 = mid + (p.loop.e - now) * pps;
+                ctx.fillStyle = 'rgba(255,159,26,0.18)';
+                ctx.fillRect(x1, 0, x2 - x1, zH);
+                ctx.fillStyle = '#ff9f1a';
+                ctx.fillRect(Math.round(x1), 0, 2, zH);
+                ctx.fillRect(Math.round(x2) - 2, 0, 2, zH);
+            }
+            ctx.font = 'bold 10px sans-serif';
+            p.cues.forEach((c, i) => {
+                if (c === null) return;
+                const x = Math.round(mid + (c - now) * pps);
+                if (x < -16 || x > cw + 16) return;
+                ctx.fillStyle = HC_COLORS[i];
+                ctx.fillRect(x, 0, 2, zH);
+                ctx.fillRect(x, zH - 14, 14, 14);
+                ctx.fillStyle = '#000';
+                ctx.fillText(HC_LETTERS[i], x + 3, zH - 3);
+            });
+        }
+        function drawOverviewMarkers(ctx, side, oy, oh, cw, dur) {
+            const p = perf[side];
+            if (!dur) return;
+            if (p.loop) {
+                ctx.fillStyle = 'rgba(255,159,26,0.5)';
+                ctx.fillRect(p.loop.s / dur * cw, oy, Math.max(2, (p.loop.e - p.loop.s) / dur * cw), oh);
+            }
+            p.cues.forEach((c, i) => {
+                if (c === null) return;
+                ctx.fillStyle = HC_COLORS[i];
+                ctx.fillRect(Math.round(c / dur * cw), oy, 2, oh);
+            });
+        }
+        function waveTimeAt(e, side, wrapper) {
+            const rect = wrapper.getBoundingClientRect(), x = e.clientX - rect.left;
+            const dur = jogDuration(side) || 0;
+            const abs = Math.max(0, Math.min(1, x / rect.width)) * dur;
+            return (!USE_HTML5_AUDIO && rgbWave[side]) ? rgbSeekTime(e, side, x, rect, abs) : abs;
+        }
+        function waveAddCue(e) {
+            const wrapper = e.target.closest('.waveform-wrapper');
+            if (!wrapper) return;
+            const side = wrapper.id.indexOf('left') === 0 ? 'left' : 'right';
+            e.preventDefault(); e.stopPropagation();
+            if (!jogLoaded(side)) return;
+            addCueAt(side, waveTimeAt(e, side, wrapper));
+        }
+        const wc = document.querySelector('.waveforms-container');
+        if (wc) {
+            wc.addEventListener('click', e => { if (e.shiftKey) waveAddCue(e); }, true);
+            wc.addEventListener('contextmenu', waveAddCue, true);
+        }
+
+        // ---------- MIDI routing for buttons and pads ----------
+        function midiButton(target, on) {
+            const [side, k] = target.split('.');
+            if (k === 'touch') return jogTouch(side, on);
+            if (k === 'shift') { perf[side].shift = on; if (on) flashCell(`mx-${side}-shift`); return; }
+            if (!on) return;
+            if (k === 'modesel' || (k === 'cue' && perf[side].shift)) { flashCell(`mx-${side}-modesel`); armModeSelect(side); return; }
+            if (k === 'sync') { flashCell(`mx-${side}-sync`); toggleSync(side); return; }
+            if (k.indexOf('mode_') === 0) { setPadMode(side, k.slice(5)); return; }
+            triggerButton(target);
+        }
+        const PAD_BLOCK_MODE = { 0: 'hotcue', 1: 'padfx', 3: 'sampler', 5: 'padfx', 6: 'loop' };
+        function midiPad(side, ch, d1, on, pm) {
+            const p = perf[side];
+            const n = ((d1 - pm.base) % 8 + 8) % 8, idx = side === 'left' ? 8 + n : n;
+            if (!on) { padUp(idx); return; }
+            // If the controller itself changes pad mode, it sends a different note block — follow it
+            if (pm.base === 0) {
+                const blk = d1 >> 4, mm = PAD_BLOCK_MODE[blk];
+                if (mm && p.lastBlock !== null && blk !== p.lastBlock && p.mode !== mm) setPadMode(side, mm);
+                p.lastBlock = blk;
+            }
+            // SHIFT + CUE, then pad 1-4 = choose pad mode
+            if (p.armed && performance.now() - p.armed < 4000 && n < 4) {
+                p.armed = 0; clearTimeout(p.armTimer);
+                const bank = document.getElementById(side + 'Bank');
+                if (bank) bank.classList.remove('arming');
+                setPadMode(side, PAD_MODES[n]);
+                return;
+            }
+            const shifted = p.shift || (pm.ch.length > 1 && ch === pm.ch[1]);
+            padDown(idx, shifted);
+        }
+
+        buildBanks();
+        buildSyncButtons();
     </script>
 </body>
 </html>
