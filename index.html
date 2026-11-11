@@ -1667,6 +1667,16 @@
             .pf-sub { font-size: 7px; }
             .sync-button { padding: 4px 8px; font-size: 8px; }
         }
+
+        /* Smart Fader */
+        .smart-fader-btn {
+            position: absolute; top: -24px; left: 50%; transform: translateX(-50%);
+            padding: 3px 10px; border-radius: 10px; cursor: pointer; white-space: nowrap;
+            background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #999; font-size: 9px; font-weight: 700; letter-spacing: 1.2px; font-family: inherit;
+        }
+        .smart-fader-btn:hover { border-color: #ff9f1a; color: #fff; }
+        .smart-fader-btn.active { background: #ff9f1a; border-color: #ff9f1a; color: #1a0f00; box-shadow: 0 0 12px rgba(255, 159, 26, 0.7); }
     </style>
 </head>
 <body>
@@ -2382,42 +2392,100 @@
             });
         }
 
-        // Desktop: download + decode a playlist track on demand (keeps only a few decoded in memory)
+        // Desktop: download (with progress) + decode a playlist track; keeps only a few decoded in memory
         const decodedCache = [];
-        async function ensureTrackBuffer(track, side) {
-            if (track.buffer) return true;
-            if (!track.url) return false;
+        async function ensureTrackBuffer(track, onProgress) {
+            if (track.buffer) return track.buffer;
+            if (!track.url) return null;
+            track.listeners = track.listeners || [];
+            if (onProgress) track.listeners.push(onProgress);
             if (!track.pending) {
-                showNotification(`Loading ${track.title}…`, 'success');
                 track.pending = (async () => {
                     const res = await fetch(track.url);
                     if (!res.ok) throw new Error(res.status + ' ' + res.statusText);
-                    const buf = await getAudioContext().decodeAudioData(await res.arrayBuffer());
+                    const total = +res.headers.get('content-length') || 0;
+                    let bytes;
+                    if (res.body && total) {
+                        const reader = res.body.getReader(), chunks = [];
+                        let got = 0;
+                        for (;;) {
+                            const { done, value } = await reader.read();
+                            if (done) break;
+                            chunks.push(value); got += value.length;
+                            (track.listeners || []).forEach(f => f(Math.min(1, got / total)));
+                        }
+                        const out = new Uint8Array(got);
+                        let o = 0;
+                        chunks.forEach(c => { out.set(c, o); o += c.length; });
+                        bytes = out.buffer;
+                    } else {
+                        bytes = await res.arrayBuffer();
+                    }
+                    (track.listeners || []).forEach(f => f(1));
+                    const buf = await getAudioContext().decodeAudioData(bytes);
                     if (!track.bpm) track.bpm = detectBPM(buf);
                     return buf;
                 })();
             }
             try {
-                track.buffer = await track.pending;
+                const buf = await track.pending;
+                track.buffer = buf;
+                if (decodedCache.indexOf(track) === -1) decodedCache.push(track);
+                while (decodedCache.length > 6) {
+                    const old = decodedCache.shift();
+                    if (old !== track && old.buffer !== tracks.left.buffer && old.buffer !== tracks.right.buffer) old.buffer = null;
+                }
+                return buf;
             } catch (err) {
                 console.error(`Error loading ${track.file}:`, err);
                 showNotification(`Could not load ${track.title}`, 'error');
-                return false;
+                return null;
             } finally {
                 track.pending = null;
+                track.listeners = [];
             }
-            decodedCache.push(track);
-            while (decodedCache.length > 6) {
-                const old = decodedCache.shift();
-                if (old !== track && old.buffer !== tracks.left.buffer && old.buffer !== tracks.right.buffer) old.buffer = null;
+        }
+
+        function showDeckInfo(side, track) {
+            tracks[side].bpm = track.bpm;
+            tracks[side].name = track.title;
+            tracks[side].key = track.key || '--';  // Add key support
+            tracks[side].pauseTime = 0;
+            
+            document.getElementById(side + 'BPM').textContent = Math.round(track.bpm);
+            document.getElementById(side + 'TrackName').textContent = track.title;
+            
+            // Update key display if element exists
+            const keyElement = document.getElementById(side + 'Key');
+            if (keyElement) {
+                keyElement.textContent = tracks[side].key;
             }
-            return true;
+            
+            // Update artist image in turntable
+            const img = document.getElementById(side + 'ArtistImg');
+            if (track.artistImage && img) {
+                const BASE_URL = 'https://aaron-chen-angus.github.io/intelliCARE-DJ';
+                img.src = `${BASE_URL}/artists/${track.artistImage}`;
+                img.style.display = 'block';
+                img.onerror = () => { 
+                    img.src = `${BASE_URL}/artists/default.jpg`;
+                    img.onerror = () => {
+                        img.style.display = 'none';
+                    };
+                };
+            } else if (img) {
+                img.style.display = 'none';
+            }
+            
+            document.getElementById(side + 'Turntable').classList.add('loaded');
+            document.getElementById(side + 'Eject').disabled = false;
         }
 
         async function loadFromPlaylist(index, side) {
             const track = playlist[index];
             if (!USE_HTML5_AUDIO && !track.buffer) {
-                if (!(await ensureTrackBuffer(track, side))) return;
+                streamTrack(index, side);   // starts playing at once; full waveform swaps in when decoded
+                return;
             }
             
             if (tracks[side].isPlaying) {
@@ -2451,38 +2519,7 @@
                 tracks[side].buffer = track.buffer;
             }
             
-            tracks[side].bpm = track.bpm;
-            tracks[side].name = track.title;
-            tracks[side].key = track.key || '--';  // Add key support
-            tracks[side].pauseTime = 0;
-            
-            document.getElementById(side + 'BPM').textContent = Math.round(track.bpm);
-            document.getElementById(side + 'TrackName').textContent = track.title;
-            
-            // Update key display if element exists
-            const keyElement = document.getElementById(side + 'Key');
-            if (keyElement) {
-                keyElement.textContent = tracks[side].key;
-            }
-            
-            // Update artist image in turntable
-            const img = document.getElementById(side + 'ArtistImg');
-            if (track.artistImage && img) {
-                const BASE_URL = 'https://aaron-chen-angus.github.io/intelliCARE-DJ';
-                img.src = `${BASE_URL}/artists/${track.artistImage}`;
-                img.style.display = 'block';
-                img.onerror = () => { 
-                    img.src = `${BASE_URL}/artists/default.jpg`;
-                    img.onerror = () => {
-                        img.style.display = 'none';
-                    };
-                };
-            } else if (img) {
-                img.style.display = 'none';
-            }
-            
-            document.getElementById(side + 'Turntable').classList.add('loaded');
-            document.getElementById(side + 'Eject').disabled = false;
+            showDeckInfo(side, track);
             
             if (!USE_HTML5_AUDIO) {
                 drawWaveform(track.buffer, side);
@@ -3555,6 +3592,7 @@
             right: { trim: 64, hi: 64, mid: 64, low: 64, cfx: 64, vol: 127 }
         };
         const deckChains = {};
+        const mxFaderSeen = { left: false, right: false };
         let mxCustom = {}, mxPads = JSON.parse(JSON.stringify(MX_DEFAULT_PADS));
         let mxLearn = null, midiAccess = null, mxUiQueued = false, mxActTimer = null;
 
@@ -3594,7 +3632,7 @@
             if (!c) return;
             const s = mixState[side], t = c.input.context.currentTime, tc = 0.012;
             c.input.gain.setTargetAtTime(s.trim <= 64 ? s.trim / 64 : 1 + (s.trim - 64) / 63, t, tc);
-            c.low.gain.setTargetAtTime(eqDb(s.low), t, tc);
+            c.low.gain.setTargetAtTime(Math.max(-40, eqDb(s.low) + (typeof smartLowDb === 'function' ? smartLowDb(side) : 0)), t, tc);
             c.mid.gain.setTargetAtTime(eqDb(s.mid), t, tc);
             c.high.gain.setTargetAtTime(eqDb(s.hi), t, tc);
             const d = s.cfx < 64 ? (s.cfx - 64) / 64 : (s.cfx - 64) / 63;   // -1 … +1, centre = off
@@ -3620,6 +3658,8 @@
             });
             h += '<div class="mx-label mx-xf" style="margin-top:6px">CROSSFADER</div>';
             h += '<div class="mx-cell mx-xf" data-t="xf"><div class="mx-fill" id="mx-xf"></div></div>';
+            h += '<div class="mx-label mx-xf" style="margin-top:6px">SMART FADER BUTTON</div>';
+            h += '<div class="mx-cell mx-btn-cell mx-xf" data-t="smart" id="mx-smart">click, then press SMART FADER</div>';
             g.innerHTML = h;
             g.querySelectorAll('.mx-cell').forEach(el => el.addEventListener('click', () => startLearn(el.dataset.t)));
             refreshMixerUI();
@@ -3658,6 +3698,7 @@
             document.querySelectorAll(`.mx-cell[data-t="${target}"]`).forEach(e => e.classList.add('learning'));
             hint.className = 'mx-hint learn';
             hint.textContent = target.endsWith('.pads') ? 'Press PAD 1 (top-left) on that deck…'
+                : target === 'smart' ? 'Press the SMART FADER button on the controller…'
                 : (target.endsWith('.play') || target.endsWith('.cue')) ? 'Press the button on the controller…'
                 : target.endsWith('.jog') ? 'Turn the jog wheel on the controller…'
                 : target.endsWith('.touch') ? 'Touch the top of the jog wheel…'
@@ -3690,6 +3731,7 @@
             } else {
                 const [side, k] = target.split('.');
                 mixState[side][k] = v;
+                if (k === 'vol') mxFaderSeen[side] = true;
                 applyDeck(side);
             }
             queueUI();
@@ -3699,7 +3741,7 @@
             const [side, k] = target.split('.');
             const loaded = USE_HTML5_AUDIO ? tracks[side].audioElement : tracks[side].buffer;
             flashCell(`mx-${side}-${k}`);
-            if (!loaded) { showNotification(`Load a track on the ${side} deck first`, 'error'); return; }
+            if (!loaded && !(typeof deckStream !== 'undefined' && deckStream[side])) { showNotification(`Load a track on the ${side} deck first`, 'error'); return; }
             if (k === 'play') togglePlay(side);
             else if (k === 'cue') stopTrack(side);
         }
@@ -3719,7 +3761,7 @@
 
             // MIDI learn
             if (mxLearn) {
-                const isButton = /\.(play|cue|pads|touch|sync|shift|modesel)$/.test(mxLearn);
+                const isButton = mxLearn === 'smart' || /\.(play|cue|pads|touch|sync|shift|modesel)$/.test(mxLearn);
                 const isJog = /\.jog$/.test(mxLearn);
                 if (isButton && noteOn) {
                     if (mxLearn.endsWith('.pads')) {
@@ -3767,7 +3809,16 @@
             document.getElementById('midiDevice').textContent = dev
                 ? `Connected: ${names.join(', ')}`
                 : 'No controller detected — plug in the DDJ-FLX2 via USB.';
-            if (dev && !bindMidiInputs.announced) { bindMidiInputs.announced = true; showNotification(`🎛️ ${dev} connected`, 'success'); }
+            if (dev && !bindMidiInputs.announced) {
+                bindMidiInputs.announced = true;
+                // The controller only reports a fader when it moves, so until then follow the
+                // hardware's safe position: channel faders down (silent), like djay with a DDJ.
+                ['left', 'right'].forEach(side => {
+                    if (!mxFaderSeen[side]) { mixState[side].vol = 0; applyDeck(side); }
+                });
+                queueUI();
+                showNotification(`🎛️ ${dev} connected — raise the channel faders to hear each deck`, 'success');
+            }
             if (!dev) bindMidiInputs.announced = false;
         }
 
@@ -3901,7 +3952,7 @@
         const HC_STORE = 'icdj_hotcues_v1';
 
         function pfDeck() {
-            return { mode: 'sampler', sync: null, nudge: 1, loop: null, cues: Array(8).fill(null), key: null,
+            return { mode: 'sampler', sync: null, smart: null, nudge: 1, loop: null, cues: Array(8).fill(null), key: null,
                      clock: 0, fx: new Set(), roll: false, brake: false, armed: 0, armTimer: null,
                      shift: false, lastBlock: null, cueSetAt: Array(8).fill(0) };
         }
@@ -3914,7 +3965,7 @@
         // ---------- Deck clock: tempo (sync × nudge) and loop-aware position ----------
         function deckRate(side) {
             const p = perf[side];
-            return (p.sync ? p.sync.rate : 1) * p.nudge;
+            return (p.smart !== null ? p.smart : (p.sync ? p.sync.rate : 1)) * p.nudge;
         }
         function deckTick(side) {
             const t = tracks[side], p = perf[side];
@@ -3958,8 +4009,10 @@
             if (btn) btn.classList.toggle('active', !!p.sync);
             const el = document.getElementById(side + 'BPM');
             if (!el || !bpm) return;
-            el.textContent = p.sync ? (bpm * p.sync.rate).toFixed(1) : Math.round(bpm);
-            el.classList.toggle('bpm-synced', !!p.sync);
+            const base = p.smart !== null ? p.smart : (p.sync ? p.sync.rate : 1);
+            const adj = p.smart !== null || !!p.sync;
+            el.textContent = adj ? (bpm * base).toFixed(1) : Math.round(bpm);
+            el.classList.toggle('bpm-synced', adj);
         }
 
         function refreshWave(side) {
@@ -4008,7 +4061,7 @@
         // SYNC: pressing play on a synced deck lands it on the beat of the playing deck
         const pfPrevToggle = togglePlay;
         togglePlay = function(side) {
-            if (!USE_HTML5_AUDIO && !tracks[side].isPlaying && perf[side].sync &&
+            if (!USE_HTML5_AUDIO && !tracks[side].isPlaying && (perf[side].sync || smartOn) &&
                 tracks[side].buffer && tracks[pfOther(side)].isPlaying) {
                 const np = phaseTarget(side);
                 if (np !== null) tracks[side].pauseTime = np;
@@ -4037,8 +4090,10 @@
         // New track on a deck: sync off, loop off, FX off, recall cached hot cues
         function resetDeckPerf(side, name) {
             const p = perf[side];
+            if (typeof stopStream === 'function') stopStream(side);
             Array.from(p.fx).forEach(n => fxOff(side, n));
-            p.sync = null; p.nudge = 1; p.loop = null; p.roll = false; p.brake = false;
+            p.sync = null; p.smart = null; p.nudge = 1; p.loop = null; p.roll = false; p.brake = false;
+            setTimeout(applySmart, 0);
             p.key = name || null;
             const saved = p.key && hcStore[p.key];
             p.cues = Array(8).fill(null);
@@ -4206,7 +4261,7 @@
             const beat = 60 / ((t.bpm || 120) * deckRate(side));
             p.fx.add(n);
             switch (n) {
-                case 0: c.echo.delayTime.setValueAtTime(beat / 2, now); c.echoSend.gain.setTargetAtTime(1, now, tc); break;
+                case 0: c.echo.delayTime.setValueAtTime(beat / 2, now); c.echoSend.gain.setTargetAtTime(1, now, tc); break;  // full echo while held
                 case 1: c.revSend.gain.setTargetAtTime(1, now, tc); break;
                 case 2: c.flSend.gain.setTargetAtTime(0.9, now, tc); break;
                 case 3: c.phSend.gain.setTargetAtTime(1, now, tc); break;
@@ -4237,7 +4292,7 @@
             if (c) {
                 const now = c.fxIn.context.currentTime, tc = 0.02;
                 switch (n) {
-                    case 0: c.echoSend.gain.setTargetAtTime(0, now, tc); break;
+                    case 0: c.echoSend.gain.setTargetAtTime(smartEchoAmt(), now, tc); break;
                     case 1: c.revSend.gain.setTargetAtTime(0, now, tc); break;
                     case 2: c.flSend.gain.setTargetAtTime(0, now, tc); break;
                     case 3: c.phSend.gain.setTargetAtTime(0, now, tc); break;
@@ -4436,12 +4491,13 @@
         }
         const wc = document.querySelector('.waveforms-container');
         if (wc) {
-            wc.addEventListener('click', e => { if (e.shiftKey) waveAddCue(e); }, true);
+            wc.addEventListener('click', e => { if (e.shiftKey) waveAddCue(e); else streamSeek(e); }, true);
             wc.addEventListener('contextmenu', waveAddCue, true);
         }
 
         // ---------- MIDI routing for buttons and pads ----------
         function midiButton(target, on) {
+            if (target === 'smart') { if (on) { flashCell('mx-smart'); toggleSmartFader(); } return; }
             const [side, k] = target.split('.');
             if (k === 'touch') return jogTouch(side, on);
             if (k === 'shift') { perf[side].shift = on; if (on) flashCell(`mx-${side}-shift`); return; }
@@ -4473,6 +4529,197 @@
             const shifted = p.shift || (pm.ch.length > 1 && ch === pm.ch[1]);
             padDown(idx, shifted);
         }
+
+
+        // ---------- Instant start: play a playlist track while it downloads + decodes ----------
+        const deckStream = { left: null, right: null };
+        function setPlayUI(side, on) {
+            const b = document.getElementById(side + 'Play');
+            b.classList.toggle('playing', on);
+            b.innerHTML = on ? '<svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>'
+                             : '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+            document.getElementById(side + 'Vinyl').classList.toggle('spinning', on);
+        }
+        function stopStream(side) {
+            const s = deckStream[side];
+            if (!s) return null;
+            deckStream[side] = null;
+            cancelAnimationFrame(s.raf);
+            const st = { pos: s.audio.currentTime || 0, was: !s.audio.paused };
+            s.audio.pause();
+            try { s.node.disconnect(); } catch (e) {}
+            s.audio.removeAttribute('src'); s.audio.load();
+            setPlayUI(side, false);
+            return st;
+        }
+        function drawStream(side) {
+            const s = deckStream[side];
+            if (!s) return;
+            const canvas = document.getElementById(side + 'Canvas'), ctx = canvas.getContext('2d');
+            const dpr = window.devicePixelRatio || 1, cw = canvas.clientWidth, ch = canvas.clientHeight;
+            if (cw && ch) {
+                if (canvas.width !== Math.round(cw * dpr) || canvas.height !== Math.round(ch * dpr)) {
+                    canvas.width = Math.round(cw * dpr); canvas.height = Math.round(ch * dpr);
+                }
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                ctx.fillStyle = 'rgba(10, 10, 20, 0.95)'; ctx.fillRect(0, 0, cw, ch);
+                const a = s.audio, dur = a.duration || 0, pos = a.currentTime || 0, by = ch - 12;
+                ctx.fillStyle = 'rgba(255,255,255,0.08)'; ctx.fillRect(0, by, cw, 5);
+                ctx.fillStyle = '#00d4ff'; ctx.fillRect(0, by, cw * s.pct, 5);
+                if (dur) { ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillRect(Math.round(pos / dur * cw), 0, 1, ch); }
+                ctx.font = '600 11px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,0.65)';
+                ctx.fillText(s.pct < 1 ? `Playing · loading waveform ${Math.round(s.pct * 100)}%` : 'Playing · analysing waveform…', cw / 2, ch / 2);
+                ctx.textAlign = 'start';
+                document.getElementById(side + 'Time').textContent =
+                    formatTime(Math.floor(pos)) + ' / ' + (dur ? formatTime(Math.floor(dur)) : '--:--');
+            }
+            s.raf = requestAnimationFrame(() => drawStream(side));
+        }
+        function streamTrack(index, side) {
+            const track = playlist[index];
+            if (tracks[side].isPlaying) stopTrack(side);
+            resetDeckPerf(side, track.title);           // also stops any earlier stream on this deck
+            if (desktopWaveformAnimations[side]) cancelAnimationFrame(desktopWaveformAnimations[side]);
+            delete rgbWave[side];
+            tracks[side].buffer = null;
+            showDeckInfo(side, track);
+            const ctx = getAudioContext();
+            if (ctx.state === 'suspended') ctx.resume();
+            const chain = getDeckChain(side);
+            const audio = new Audio();
+            audio.crossOrigin = 'anonymous'; audio.preload = 'auto'; audio.loop = true; audio.src = track.url;
+            const node = ctx.createMediaElementSource(audio);
+            node.connect(chain.input);                   // EQ, CFX, fader and crossfader work straight away
+            const sl = document.getElementById('trackSlider').value;
+            chain.xfade.gain.value = side === 'left' ? (100 - sl) / 100 : sl / 100;
+            tracks[side].gainNode = chain.xfade;
+            const s = { audio, node, raf: 0, pct: 0 };
+            deckStream[side] = s;
+            audio.play().then(() => { if (deckStream[side] === s) setPlayUI(side, true); }).catch(e => console.warn('Stream play:', e));
+            drawStream(side);
+            showNotification(`${side.toUpperCase()}: ${track.title}`, 'success');
+            ensureTrackBuffer(track, p => { s.pct = p; }).then(buf => {
+                if (!buf || deckStream[side] !== s) return;
+                const st = stopStream(side);
+                tracks[side].buffer = buf;
+                tracks[side].bpm = track.bpm;
+                drawWaveform(buf, side);
+                tracks[side].pauseTime = Math.min(st.pos, buf.duration - 0.05);
+                if (st.was) playTrack(side); else jogSeek(side, 0);
+            });
+        }
+
+        // Transport while a deck is still streaming
+        const pfStreamToggle = togglePlay;
+        togglePlay = function(side) {
+            const s = deckStream[side];
+            if (!s) return pfStreamToggle(side);
+            if (s.audio.paused) { getAudioContext().resume(); s.audio.play(); setPlayUI(side, true); }
+            else { s.audio.pause(); setPlayUI(side, false); }
+        };
+        const pfStreamPause = pauseTrack;
+        pauseTrack = function(side) {
+            const s = deckStream[side];
+            if (s) { s.audio.pause(); setPlayUI(side, false); return; }
+            return pfStreamPause(side);
+        };
+        const pfStreamStop = stopTrack;
+        stopTrack = function(side) {
+            const s = deckStream[side];
+            if (s) { s.audio.pause(); s.audio.currentTime = 0; setPlayUI(side, false); return; }
+            return pfStreamStop(side);
+        };
+        const pfStreamStopAll = stopAllSounds;
+        stopAllSounds = function() {
+            PF_SIDES.forEach(side => { const s = deckStream[side]; if (s) { s.audio.pause(); setPlayUI(side, false); } });
+            return pfStreamStopAll();
+        };
+        function streamSeek(e) {
+            const wrapper = e.target.closest('.waveform-wrapper');
+            if (!wrapper) return false;
+            const side = wrapper.id.indexOf('left') === 0 ? 'left' : 'right', s = deckStream[side];
+            if (!s || !s.audio.duration) return false;
+            const r = wrapper.getBoundingClientRect();
+            s.audio.currentTime = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * s.audio.duration;
+            e.stopPropagation();
+            return true;
+        }
+
+
+        // ---------- SMART FADER (DDJ-FLX2 / djay-style) ----------
+        // Moving the crossfader blends both decks to a shared tempo that slides from the left
+        // track's BPM (fader left) to the right track's BPM (fader right), swaps the bass halfway
+        // and adds a light echo through the middle of the transition.
+        let smartOn = false;
+        function smartX() { return (+document.getElementById('trackSlider').value || 0) / 100; }
+        function smartLowDb(side) {
+            if (!smartOn) return 0;
+            const x = smartX(), cl = v => Math.max(0, Math.min(1, v));
+            return side === 'left' ? -30 * cl((x - 0.4) / 0.35) : -30 * cl((0.6 - x) / 0.35);
+        }
+        function smartEchoAmt() { if (!smartOn) return 0; const x = smartX(); return 0.3 * 4 * x * (1 - x); }
+        function smartEchoApply() {
+            PF_SIDES.forEach(side => {
+                const c = deckChains[side];
+                if (!c || perf[side].fx.has(0)) return;   // PAD FX echo held: leave it
+                const now = c.fxIn.context.currentTime, bpm = (tracks[side].bpm || 120) * deckRate(side);
+                if (smartOn) c.echo.delayTime.setTargetAtTime(30 / bpm, now, 0.05);   // 1/2 beat
+                c.echoSend.gain.setTargetAtTime(smartEchoAmt(), now, 0.05);
+            });
+        }
+        function smartSetRate(side, r) {
+            if (perf[side].smart === r) return;
+            deckTick(side);
+            perf[side].smart = r;
+            applyRate(side);
+        }
+        function applySmart() {
+            const ok = s => jogLoaded(s) && tracks[s].bpm;
+            if (smartOn && ok('left') && ok('right')) {
+                const bl = tracks.left.bpm, br = tracks.right.bpm;
+                let k = 1;
+                [0.5, 2].forEach(f => { if (Math.abs(Math.log(br * f / bl)) < Math.abs(Math.log(br * k / bl))) k = f; });
+                const bR = br * k, T = bl + (bR - bl) * smartX();
+                smartSetRate('left', T / bl);
+                smartSetRate('right', T / bR);
+            } else {
+                PF_SIDES.forEach(side => smartSetRate(side, null));
+            }
+            PF_SIDES.forEach(applyDeck);
+            smartEchoApply();
+        }
+        function toggleSmartFader() {
+            smartOn = !smartOn;
+            const b = document.getElementById('smartFaderBtn');
+            if (b) b.classList.toggle('active', smartOn);
+            applySmart();
+            if (smartOn) {
+                const inc = smartX() < 0.5 ? 'right' : 'left';   // incoming deck = the one the fader is away from
+                if (!USE_HTML5_AUDIO && tracks[inc].isPlaying && tracks[pfOther(inc)].isPlaying) {
+                    const np = phaseTarget(inc);
+                    if (np !== null) deckJump(inc, np);
+                }
+                const both = jogLoaded('left') && jogLoaded('right');
+                showNotification(both ? 'SMART FADER on — move the crossfader to mix' : 'SMART FADER on — load both decks to use it', 'success');
+            } else {
+                showNotification('SMART FADER off — decks back to original BPM', 'success');
+            }
+        }
+        const pfPrevCrossfade = updateCrossfade;
+        updateCrossfade = function(value) {
+            const r = pfPrevCrossfade(value);
+            if (smartOn) applySmart();
+            return r;
+        };
+        (function buildSmartButton() {
+            const sc = document.querySelector('.slider-container');
+            if (!sc) return;
+            const b = document.createElement('button');
+            b.className = 'smart-fader-btn'; b.id = 'smartFaderBtn'; b.textContent = 'SMART FADER';
+            b.title = 'Crossfader blends tempo, bass and echo automatically (like the DDJ-FLX2 SMART FADER)';
+            b.addEventListener('click', toggleSmartFader);
+            sc.appendChild(b);
+        })();
 
         buildBanks();
         buildSyncButtons();
