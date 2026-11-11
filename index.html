@@ -2481,11 +2481,37 @@
             document.getElementById(side + 'Eject').disabled = false;
         }
 
+        // Try the normal (cache-friendly) download first: if the browser already has the file, or the
+        // connection is fast, it arrives within ~1.5 s and the deck loads with its full waveform.
+        async function quickLoad(track, ms) {
+            if (track.buffer) return true;
+            if (track.pending) return false;
+            const ac = new AbortController();
+            const timer = setTimeout(() => ac.abort(), ms);
+            try {
+                const res = await fetch(track.url, { signal: ac.signal });
+                if (!res.ok) { clearTimeout(timer); return false; }
+                const bytes = await res.arrayBuffer();
+                clearTimeout(timer);
+                const buf = await getAudioContext().decodeAudioData(bytes);
+                if (!track.bpm) track.bpm = detectBPM(buf);
+                track.buffer = buf;
+                if (decodedCache.indexOf(track) === -1) decodedCache.push(track);
+                return true;
+            } catch (e) {
+                clearTimeout(timer);
+                return false;
+            }
+        }
+
         async function loadFromPlaylist(index, side) {
             const track = playlist[index];
             if (!USE_HTML5_AUDIO && !track.buffer) {
-                streamTrack(index, side);   // starts playing at once; full waveform swaps in when decoded
-                return;
+                showNotification(`Loading ${track.title}…`, 'success');
+                if (!(await quickLoad(track, 1500))) {
+                    streamTrack(index, side);   // slow connection: start playing now, waveform swaps in later
+                    return;
+                }
             }
             
             if (tracks[side].isPlaying) {
