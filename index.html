@@ -2071,33 +2071,21 @@
                             console.log(`✓ Added to playlist: ${trackInfo.title} (${trackInfo.key || 'no key'})`);
                             
                         } else {
-                            // Desktop: Load with Web Audio API
-                            const trackResponse = await fetch(trackURL);
-                            
-                            if (!trackResponse.ok) {
-                                console.error(`Failed to load ${trackInfo.filename}`);
-                                continue;
-                            }
-                            
-                            const arrayBuffer = await trackResponse.arrayBuffer();
-                            const audioBuffer = await getAudioContext().decodeAudioData(arrayBuffer);
-                            
-                            // Use BPM from JSON if provided, otherwise auto-detect
-                            const bpm = trackInfo.bpm || detectBPM(audioBuffer);
-                            
+                            // Desktop: list the track now; the audio is downloaded + decoded
+                            // only when the track is loaded onto a deck (see ensureTrackBuffer)
                             const trackData = {
                                 id: Date.now() + Math.random(),
                                 title: trackInfo.title,
                                 artist: trackInfo.artist,
                                 artistImage: trackInfo.artistImage,
-                                buffer: audioBuffer,
-                                bpm: bpm,
+                                url: trackURL,
+                                buffer: null,
+                                bpm: trackInfo.bpm || 0,
                                 key: trackInfo.key || '--',
                                 file: trackInfo.filename
                             };
                             
                             playlist.push(trackData);
-                            console.log(`✓ Loaded track: ${trackInfo.title} (${Math.round(bpm)} BPM, ${trackInfo.key || 'no key'})`);
                         }
                         
                     } catch (error) {
@@ -2121,6 +2109,9 @@
         }
 
         document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey || e.metaKey || e.altKey) return;   // leave browser shortcuts (Ctrl+Shift+R, Ctrl+C …) alone
+            const tag = (e.target && e.target.tagName) || '';
+            if (tag === 'INPUT' || tag === 'TEXTAREA') return; // typing in a text box doesn't trigger pads
             const key = e.key.toLowerCase();
             if (keyboardMap.hasOwnProperty(key)) {
                 e.preventDefault();
@@ -2391,8 +2382,43 @@
             });
         }
 
-        function loadFromPlaylist(index, side) {
+        // Desktop: download + decode a playlist track on demand (keeps only a few decoded in memory)
+        const decodedCache = [];
+        async function ensureTrackBuffer(track, side) {
+            if (track.buffer) return true;
+            if (!track.url) return false;
+            if (!track.pending) {
+                showNotification(`Loading ${track.title}…`, 'success');
+                track.pending = (async () => {
+                    const res = await fetch(track.url);
+                    if (!res.ok) throw new Error(res.status + ' ' + res.statusText);
+                    const buf = await getAudioContext().decodeAudioData(await res.arrayBuffer());
+                    if (!track.bpm) track.bpm = detectBPM(buf);
+                    return buf;
+                })();
+            }
+            try {
+                track.buffer = await track.pending;
+            } catch (err) {
+                console.error(`Error loading ${track.file}:`, err);
+                showNotification(`Could not load ${track.title}`, 'error');
+                return false;
+            } finally {
+                track.pending = null;
+            }
+            decodedCache.push(track);
+            while (decodedCache.length > 6) {
+                const old = decodedCache.shift();
+                if (old !== track && old.buffer !== tracks.left.buffer && old.buffer !== tracks.right.buffer) old.buffer = null;
+            }
+            return true;
+        }
+
+        async function loadFromPlaylist(index, side) {
             const track = playlist[index];
+            if (!USE_HTML5_AUDIO && !track.buffer) {
+                if (!(await ensureTrackBuffer(track, side))) return;
+            }
             
             if (tracks[side].isPlaying) {
                 stopTrack(side);
