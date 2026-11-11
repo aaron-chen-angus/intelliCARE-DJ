@@ -3797,6 +3797,15 @@
                     return;
                 }
             }
+
+            // Unmapped mixer button (not a deck or pad channel): the first one pressed is taken as
+            // SMART FADER, remembered, and toggles it straight away. Re-map in the panel if needed.
+            if (noteOn && ch !== 0 && ch !== 1 && Object.keys(mxCustom).every(k => mxCustom[k] !== 'smart')) {
+                mxCustom['n' + ch + ':' + d1] = 'smart';
+                mxSave();
+                showNotification(`SMART FADER button detected (ch ${ch + 1} #${d1})`, 'success');
+                midiButton('smart', true);
+            }
         }
 
         function bindMidiInputs() {
@@ -4497,7 +4506,12 @@
 
         // ---------- MIDI routing for buttons and pads ----------
         function midiButton(target, on) {
-            if (target === 'smart') { if (on) { flashCell('mx-smart'); toggleSmartFader(); } return; }
+            if (target === 'smart') {
+                const now = performance.now();
+                if (on) { smartPressAt = now; flashCell('mx-smart'); toggleSmartFader(); }
+                else if (smartOn && now - smartPressAt > 2000) toggleSmartFader();   // latching button sent "off"
+                return;
+            }
             const [side, k] = target.split('.');
             if (k === 'touch') return jogTouch(side, on);
             if (k === 'shift') { perf[side].shift = on; if (on) flashCell(`mx-${side}-shift`); return; }
@@ -4568,7 +4582,9 @@
                 ctx.fillStyle = '#00d4ff'; ctx.fillRect(0, by, cw * s.pct, 5);
                 if (dur) { ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillRect(Math.round(pos / dur * cw), 0, 1, ch); }
                 ctx.font = '600 11px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,0.65)';
-                ctx.fillText(s.pct < 1 ? `Playing · loading waveform ${Math.round(s.pct * 100)}%` : 'Playing · analysing waveform…', cw / 2, ch / 2);
+                const msg = !s.fetching ? (a.paused || !pos ? 'Starting playback…' : 'Playing · preparing waveform…')
+                          : s.pct < 1 ? `Playing · loading waveform ${Math.round(s.pct * 100)}%` : 'Playing · analysing waveform…';
+                ctx.fillText(msg, cw / 2, ch / 2);
                 ctx.textAlign = 'start';
                 document.getElementById(side + 'Time').textContent =
                     formatTime(Math.floor(pos)) + ' / ' + (dur ? formatTime(Math.floor(dur)) : '--:--');
@@ -4587,26 +4603,34 @@
             if (ctx.state === 'suspended') ctx.resume();
             const chain = getDeckChain(side);
             const audio = new Audio();
-            audio.crossOrigin = 'anonymous'; audio.preload = 'auto'; audio.loop = true; audio.src = track.url;
+            audio.crossOrigin = 'anonymous'; audio.preload = 'auto'; audio.loop = true;
+            audio.src = track.url + (track.url.indexOf('?') === -1 ? '?' : '&') + 'stream=1';
             const node = ctx.createMediaElementSource(audio);
             node.connect(chain.input);                   // EQ, CFX, fader and crossfader work straight away
             const sl = document.getElementById('trackSlider').value;
             chain.xfade.gain.value = side === 'left' ? (100 - sl) / 100 : sl / 100;
             tracks[side].gainNode = chain.xfade;
-            const s = { audio, node, raf: 0, pct: 0 };
+            const s = { audio, node, raf: 0, pct: 0, fetching: false, userPaused: false };
             deckStream[side] = s;
             audio.play().then(() => { if (deckStream[side] === s) setPlayUI(side, true); }).catch(e => console.warn('Stream play:', e));
             drawStream(side);
             showNotification(`${side.toUpperCase()}: ${track.title}`, 'success');
-            ensureTrackBuffer(track, p => { s.pct = p; }).then(buf => {
-                if (!buf || deckStream[side] !== s) return;
-                const st = stopStream(side);
-                tracks[side].buffer = buf;
-                tracks[side].bpm = track.bpm;
-                drawWaveform(buf, side);
-                tracks[side].pauseTime = Math.min(st.pos, buf.duration - 0.05);
-                if (st.was) playTrack(side); else jogSeek(side, 0);
-            });
+            const startFetch = () => {
+                if (s.fetching || deckStream[side] !== s) return;
+                s.fetching = true;
+                ensureTrackBuffer(track, p => { s.pct = p; }).then(buf => {
+                    if (!buf || deckStream[side] !== s) return;
+                    const st = stopStream(side);
+                    tracks[side].buffer = buf;
+                    tracks[side].bpm = track.bpm;
+                    drawWaveform(buf, side);
+                    tracks[side].pauseTime = Math.min(st.pos, buf.duration - 0.05);
+                    if (!s.userPaused) playTrack(side); else jogSeek(side, 0);
+                });
+            };
+            audio.addEventListener('playing', () => setTimeout(startFetch, 1500), { once: true });
+            audio.addEventListener('error', startFetch, { once: true });
+            setTimeout(startFetch, 6000);
         }
 
         // Transport while a deck is still streaming
@@ -4614,24 +4638,24 @@
         togglePlay = function(side) {
             const s = deckStream[side];
             if (!s) return pfStreamToggle(side);
-            if (s.audio.paused) { getAudioContext().resume(); s.audio.play(); setPlayUI(side, true); }
-            else { s.audio.pause(); setPlayUI(side, false); }
+            if (s.audio.paused) { getAudioContext().resume(); s.audio.play(); s.userPaused = false; setPlayUI(side, true); }
+            else { s.audio.pause(); s.userPaused = true; setPlayUI(side, false); }
         };
         const pfStreamPause = pauseTrack;
         pauseTrack = function(side) {
             const s = deckStream[side];
-            if (s) { s.audio.pause(); setPlayUI(side, false); return; }
+            if (s) { s.audio.pause(); s.userPaused = true; setPlayUI(side, false); return; }
             return pfStreamPause(side);
         };
         const pfStreamStop = stopTrack;
         stopTrack = function(side) {
             const s = deckStream[side];
-            if (s) { s.audio.pause(); s.audio.currentTime = 0; setPlayUI(side, false); return; }
+            if (s) { s.audio.pause(); s.audio.currentTime = 0; s.userPaused = true; setPlayUI(side, false); return; }
             return pfStreamStop(side);
         };
         const pfStreamStopAll = stopAllSounds;
         stopAllSounds = function() {
-            PF_SIDES.forEach(side => { const s = deckStream[side]; if (s) { s.audio.pause(); setPlayUI(side, false); } });
+            PF_SIDES.forEach(side => { const s = deckStream[side]; if (s) { s.audio.pause(); s.userPaused = true; setPlayUI(side, false); } });
             return pfStreamStopAll();
         };
         function streamSeek(e) {
@@ -4650,7 +4674,16 @@
         // Moving the crossfader blends both decks to a shared tempo that slides from the left
         // track's BPM (fader left) to the right track's BPM (fader right), swaps the bass halfway
         // and adds a light echo through the middle of the transition.
-        let smartOn = false;
+        let smartOn = false, smartPressAt = 0;
+        // Light the controller's SMART FADER LED to match (if the button is mapped)
+        function smartLed() {
+            if (!midiAccess || !midiAccess.outputs) return;
+            const key = Object.keys(mxCustom).find(k => mxCustom[k] === 'smart') ||
+                        Object.keys(MX_DEFAULT_MAP).find(k => MX_DEFAULT_MAP[k] === 'smart');
+            const m = key && /^n(\d+):(\d+)$/.exec(key);
+            if (!m) return;
+            midiAccess.outputs.forEach(o => { try { o.send([0x90 | +m[1], +m[2], smartOn ? 127 : 0]); } catch (e) {} });
+        }
         function smartX() { return (+document.getElementById('trackSlider').value || 0) / 100; }
         function smartLowDb(side) {
             if (!smartOn) return 0;
@@ -4692,6 +4725,7 @@
             smartOn = !smartOn;
             const b = document.getElementById('smartFaderBtn');
             if (b) b.classList.toggle('active', smartOn);
+            smartLed();
             applySmart();
             if (smartOn) {
                 const inc = smartX() < 0.5 ? 'right' : 'left';   // incoming deck = the one the fader is away from
