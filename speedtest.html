@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IntelliCARE DJ Speed Test</title>
+<style>
+  :root { --bg:#0b0b14; --card:#151522; --line:#2a2a40; --text:#e8e8f0; --muted:#8a8aa0; --ok:#00ff88; --warn:#ffb020; --bad:#ff4d5e; --accent:#00d4ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif; padding:24px 16px; }
+  .wrap { max-width:760px; margin:0 auto; }
+  h1 { font-size:20px; letter-spacing:2px; margin:0 0 4px; color:var(--accent); }
+  p.sub { color:var(--muted); margin:0 0 18px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px; }
+  select, button { font:inherit; padding:8px 12px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--text); }
+  button { background:var(--accent); color:#001018; border:none; font-weight:700; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:wait; }
+  table { width:100%; border-collapse:collapse; background:var(--card); border-radius:10px; overflow:hidden; }
+  th, td { padding:10px 12px; text-align:left; border-bottom:1px solid var(--line); font-variant-numeric:tabular-nums; }
+  th { color:var(--muted); font-size:11px; letter-spacing:1px; text-transform:uppercase; font-weight:600; }
+  td.ok { color:var(--ok); } td.warn { color:var(--warn); } td.bad { color:var(--bad); }
+  .verdict { margin-top:18px; padding:14px 16px; border-radius:10px; background:var(--card); border-left:4px solid var(--accent); white-space:pre-line; }
+  .small { color:var(--muted); font-size:12px; margin-top:14px; }
+  @media (max-width:560px){ th:nth-child(3), td:nth-child(3){ display:none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>INTELLICARE DJ · SPEED TEST</h1>
+  <p class="sub">Measures how fast one song downloads from GitHub Pages compared with other servers, and how long your computer takes to decode it. Nothing is cached, so these are real network speeds.</p>
+  <div class="row">
+    <label for="trk">Song:</label>
+    <select id="trk"><option>Loading playlist…</option></select>
+    <button id="go" disabled>Run test</button>
+  </div>
+  <table>
+    <thead><tr><th>Test</th><th>Result</th><th>Details</th></tr></thead>
+    <tbody id="out"></tbody>
+  </table>
+  <div class="verdict" id="verdict">Press “Run test”. It takes up to about a minute.</div>
+  <p class="small">Please send a screenshot of this page once the test finishes.</p>
+</div>
+<script>
+const USER = 'aaron-chen-angus', REPO = 'intelliCARE-DJ';
+const LIMIT_MS = 20000;   // stop each download after 20 s and report the speed so far
+const out = document.getElementById('out'), sel = document.getElementById('trk'), go = document.getElementById('go');
+const results = {};
+
+function row(id, name) {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td>${name}</td><td id="${id}-r">…</td><td id="${id}-d"></td>`;
+  out.appendChild(tr);
+}
+function set(id, text, cls, detail) {
+  const r = document.getElementById(id + '-r');
+  r.textContent = text; r.className = cls || '';
+  if (detail !== undefined) document.getElementById(id + '-d').textContent = detail;
+}
+const mb = b => (b / 1048576).toFixed(2) + ' MB';
+const speedCls = s => s >= 1 ? 'ok' : s >= 0.3 ? 'warn' : 'bad';
+
+async function timedDownload(id, url) {
+  const t0 = performance.now();
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), LIMIT_MS);
+  let got = 0, ttfb = 0, total = 0, chunks = [], timedOut = false;
+  try {
+    const res = await fetch(url, { cache: 'no-store', signal: ac.signal });
+    ttfb = performance.now() - t0;
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    total = +res.headers.get('content-length') || 0;
+    const reader = res.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value); got += value.length;
+      const secs = (performance.now() - t0) / 1000;
+      set(id, (got / 1048576 / secs).toFixed(2) + ' MB/s', '', `${mb(got)}${total ? ' of ' + mb(total) : ''} · ${secs.toFixed(1)} s`);
+    }
+  } catch (e) {
+    if (e.name === 'AbortError') timedOut = true;
+    else { clearTimeout(timer); set(id, 'Failed', 'bad', e.message); results[id] = null; return null; }
+  }
+  clearTimeout(timer);
+  const secs = (performance.now() - t0) / 1000;
+  const speed = got / 1048576 / secs;
+  const full = total ? total / 1048576 / Math.max(speed, 0.001) : 0;
+  set(id, speed.toFixed(2) + ' MB/s', speedCls(speed),
+      `first byte ${Math.round(ttfb)} ms · ${mb(got)} in ${secs.toFixed(1)} s` +
+      (timedOut ? ` · stopped at 20 s (full song ≈ ${Math.round(full)} s)` : ''));
+  results[id] = { speed, ttfb, timedOut, full };
+  if (timedOut) return null;
+  const buf = new Uint8Array(got); let o = 0; chunks.forEach(c => { buf.set(c, o); o += c.length; });
+  return buf.buffer;
+}
+
+async function run() {
+  go.disabled = true; out.innerHTML = '';
+  const file = sel.value, enc = encodeURIComponent(file);
+  row('pages', 'GitHub Pages (what the app uses)');
+  row('raw', 'GitHub raw server (same file)');
+  row('ref', 'Reference CDN (cdnjs, not GitHub)');
+  row('dec', 'Decode on this computer');
+  document.getElementById('verdict').textContent = 'Testing…';
+
+  const bytes = await timedDownload('pages', 'tracks/' + enc + '?t=' + Date.now());
+  await timedDownload('raw', `https://raw.githubusercontent.com/${USER}/${REPO}/main/tracks/${enc}?t=${Date.now()}`);
+  await timedDownload('ref', 'https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js?t=' + Date.now());
+
+  if (bytes) {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const t0 = performance.now();
+      const ab = await ctx.decodeAudioData(bytes);
+      const ms = performance.now() - t0;
+      set('dec', (ms / 1000).toFixed(1) + ' s', ms < 4000 ? 'ok' : 'warn', `${ab.duration.toFixed(0)} s of audio, ${ab.numberOfChannels} ch`);
+      ctx.close();
+    } catch (e) { set('dec', 'Failed', 'bad', e.message); }
+  } else {
+    set('dec', 'Skipped', 'warn', 'download did not finish within 20 s');
+  }
+
+  const p = results.pages, r = results.raw, f = results.ref;
+  let v;
+  if (!p) v = 'GitHub Pages could not be reached for this file. Check the filename in tracks/ matches playlist.json.';
+  else if (p.speed >= 1) v = 'GitHub Pages is fast from this network. Downloads are not the bottleneck; send me this screenshot and I will look at the app side.';
+  else if (r && r.speed >= 1) v = 'GitHub Pages is SLOW from this network, but GitHub\'s raw file server is fast for the same song.\n→ Root cause: GitHub Pages delivery to your network. The app can load the songs from GitHub\'s raw server instead (still free, still GitHub).';
+  else if (f && f.speed >= 1) v = 'GitHub servers are slow from this network, but other CDNs are fast.\n→ Root cause: the route between your network and GitHub. Hosting the songs elsewhere will fix it.';
+  else if (!r && !f) v = 'Only GitHub Pages could be tested (the other servers were blocked), so there is nothing to compare against. Try another network (e.g. a phone hotspot).';
+  else v = 'Every server is slow, so this network\'s internet connection is the bottleneck.\n→ Try another network (e.g. a phone hotspot) to confirm.';
+  if (p && p.full) v += `\n\nAt this speed one song takes about ${Math.round(p.full)} s to download from GitHub Pages.`;
+  document.getElementById('verdict').textContent = v;
+  go.disabled = false;
+}
+
+fetch('tracks/playlist.json?t=' + Date.now()).then(r => r.json()).then(list => {
+  sel.innerHTML = list.map(t => `<option value="${t.filename.replace(/"/g, '&quot;')}">${t.title} — ${t.artist}</option>`).join('');
+  go.disabled = false;
+}).catch(() => { sel.innerHTML = '<option>Could not load playlist.json</option>'; });
+go.addEventListener('click', run);
+</script>
+</body>
+</html>
