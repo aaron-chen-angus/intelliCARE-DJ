@@ -5177,10 +5177,10 @@ function ICDJ_ANALYZE(x, sr, opts) {
                 </form>
                 <div class="ol-cats">
                     <button class="ol-cat active" data-cat="music">MUSIC</button>
-                    <button class="ol-cat" data-cat="sound_effect">SAMPLES</button>
+                    <button class="ol-cat" data-cat="clips">SONG CLIPS</button>
                 </div>
-                <div class="ol-results" id="olResults"><div class="ol-msg">Search free, openly licensed music and samples. No sign-in needed.</div></div>
-                <div class="ol-credit">Results from <a href="https://openverse.org" target="_blank" rel="noopener">Openverse</a> · Creative Commons &amp; public domain. Credit the creator when you use a track.</div>`;
+                <div class="ol-results" id="olResults"><div class="ol-msg">Search free, openly licensed music, or 30-second clips of chart songs. No sign-in needed.</div></div>
+                <div class="ol-credit" id="olCredit"></div>`;
             list.insertAdjacentElement('afterend', panel);
             tabs.querySelectorAll('.lib-tab').forEach(b => b.addEventListener('click', () => {
                 tabs.querySelectorAll('.lib-tab').forEach(x => x.classList.toggle('active', x === b));
@@ -5192,12 +5192,39 @@ function ICDJ_ANALYZE(x, sr, opts) {
             panel.querySelectorAll('.ol-cat').forEach(b => b.addEventListener('click', () => {
                 panel.querySelectorAll('.ol-cat').forEach(x => x.classList.toggle('active', x === b));
                 onlineCat = b.dataset.cat;
-                searchOnline(document.getElementById('olQuery').value || (onlineCat === 'music' ? 'electronic' : 'drum'));
+                olCreditText();
+                searchOnline(document.getElementById('olQuery').value || (onlineCat === 'music' ? 'electronic' : 'BLACKPINK'));
             }));
+            olCreditText();
             document.getElementById('olForm').addEventListener('submit', e => {
                 e.preventDefault();
                 searchOnline(document.getElementById('olQuery').value);
             });
+        }
+
+        // Apple iTunes Search: free, no sign-in; returns 30-second previews of chart songs (JSONP, no CORS needed)
+        function itunesSearch(q) {
+            return new Promise((resolve, reject) => {
+                const cb = 'icdjIT' + Date.now() + Math.floor(Math.random() * 1000);
+                const sc = document.createElement('script');
+                const done = () => { clearTimeout(timer); delete window[cb]; sc.remove(); };
+                const timer = setTimeout(() => { done(); reject(new Error('Apple search timed out. Try again.')); }, 12000);
+                window[cb] = data => { done(); resolve(data); };
+                sc.onerror = () => { done(); reject(new Error('Could not reach Apple search.')); };
+                sc.src = 'https://itunes.apple.com/search?' + new URLSearchParams({ term: q, media: 'music', entity: 'song', limit: '30', callback: cb });
+                document.head.appendChild(sc);
+            });
+        }
+        function olCreditText() {
+            const el = document.getElementById('olCredit');
+            const inp = document.getElementById('olQuery');
+            if (onlineCat === 'clips') {
+                if (el) el.innerHTML = '30-second previews from <a href="https://music.apple.com" target="_blank" rel="noopener">Apple Music</a>. For practice and teaching; public events need a performance licence.';
+                if (inp) inp.placeholder = 'Artist or song, e.g. BLACKPINK';
+            } else {
+                if (el) el.innerHTML = 'Results from <a href="https://openverse.org" target="_blank" rel="noopener">Openverse</a> · Creative Commons &amp; public domain. Credit the creator when you use a track.';
+                if (inp) inp.placeholder = 'Search e.g. house, lofi, drum loop';
+            }
         }
 
         async function searchOnline(q) {
@@ -5205,6 +5232,21 @@ function ICDJ_ANALYZE(x, sr, opts) {
             if (!q) return;
             const box = document.getElementById('olResults');
             box.innerHTML = '<div class="ol-msg">Searching…</div>';
+            if (onlineCat === 'clips') {
+                try {
+                    const data = await itunesSearch(q);
+                    onlineResults = (data.results || []).filter(r => r.previewUrl).map(r => ({
+                        id: 'it' + r.trackId, title: r.trackName, creator: r.artistName, url: r.previewUrl,
+                        thumbnail: (r.artworkUrl100 || '').replace('100x100bb', '200x200bb'), duration: 30000,
+                        source: r.collectionName || r.primaryGenreName || 'Apple Music', license: '', clip: true,
+                        foreign_landing_url: r.trackViewUrl || 'https://music.apple.com'
+                    }));
+                    renderOnline();
+                } catch (err) {
+                    box.innerHTML = `<div class="ol-msg err">${escHtml(err.message)}</div>`;
+                }
+                return;
+            }
             const params = new URLSearchParams({ q, page_size: '20', category: onlineCat, mature: 'false' });
             if (onlineCat === 'music') params.set('length', 'medium,long');
             try {
@@ -5226,16 +5268,17 @@ function ICDJ_ANALYZE(x, sr, opts) {
             onlineResults.forEach((r, i) => {
                 const item = document.createElement('div');
                 item.className = 'playlist-item ol-item';
-                const lic = (r.license || '').toUpperCase() + (r.license_version ? ' ' + r.license_version : '');
+                const lic = r.clip ? '30s CLIP' : (r.license || '').toUpperCase() + (r.license_version ? ' ' + r.license_version : '');
+                const icon = onlineCat === 'music' ? '🎵' : '🎤';
                 const thumb = r.thumbnail
-                    ? `<img class="playlist-thumbnail-img" src="${escHtml(r.thumbnail)}" alt="" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="playlist-thumbnail" style="display:none;">${onlineCat === 'music' ? '🎵' : '🥁'}</div>`
-                    : `<div class="playlist-thumbnail">${onlineCat === 'music' ? '🎵' : '🥁'}</div>`;
+                    ? `<img class="playlist-thumbnail-img" src="${escHtml(r.thumbnail)}" alt="" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="playlist-thumbnail" style="display:none;">${icon}</div>`
+                    : `<div class="playlist-thumbnail">${icon}</div>`;
                 item.innerHTML = `
                     <div class="playlist-thumbnail-container">${thumb}</div>
                     <div class="playlist-info">
                         <div class="playlist-song" title="${escHtml(r.title)}">${escHtml(r.title || 'Untitled')}</div>
                         <div class="playlist-artist">${escHtml(r.creator || 'Unknown')}</div>
-                        <div class="playlist-bpm"><a href="${escHtml(r.foreign_landing_url || '#')}" target="_blank" rel="noopener" class="ol-lic">${escHtml(lic)}</a> · ${escHtml(r.source || '')}${r.duration ? ' · ' + fmtDur(r.duration) : ''}</div>
+                        <div class="playlist-bpm"><a href="${escHtml(r.foreign_landing_url || '#')}" target="_blank" rel="noopener" class="ol-lic">${escHtml(lic)}</a> · ${escHtml(r.source || '')}${r.duration && !r.clip ? ' · ' + fmtDur(r.duration) : ''}</div>
                     </div>
                     <div class="playlist-actions">
                         <button class="load-btn left" data-act="L">L</button>
@@ -5256,7 +5299,8 @@ function ICDJ_ANALYZE(x, sr, opts) {
             if (idx === -1) {
                 playlist.push({ id: Date.now() + Math.random(), onlineId: r.id, title: r.title || 'Untitled', artist: r.creator || 'Unknown',
                                 url: r.url, thumb: r.thumbnail || '', bpm: 0, key: '--', file: r.title || r.id, online: true,
-                                credit: `${r.title} by ${r.creator} (${(r.license || '').toUpperCase()} ${r.license_version || ''}) via ${r.source}` });
+                                credit: r.clip ? `${r.title} by ${r.creator} · 30-second preview via Apple Music`
+                                               : `${r.title} by ${r.creator} (${(r.license || '').toUpperCase()} ${r.license_version || ''}) via ${r.source}` });
                 idx = playlist.length - 1;
                 renderPlaylist();
             }
