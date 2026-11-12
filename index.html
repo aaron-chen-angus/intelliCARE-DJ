@@ -1677,6 +1677,45 @@
         }
         .smart-fader-btn:hover { border-color: #ff9f1a; color: #fff; }
         .smart-fader-btn.active { background: #ff9f1a; border-color: #ff9f1a; color: #1a0f00; box-shadow: 0 0 12px rgba(255, 159, 26, 0.7); }
+
+        /* ===== Library tabs: MY TRACKS | ONLINE ===== */
+        .lib-tabs { display: flex; gap: 6px; padding: 10px 12px 0; }
+        .lib-tab {
+            flex: 1; padding: 7px 0; border-radius: 8px 8px 0 0; cursor: pointer; font-family: inherit;
+            background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(102, 126, 234, 0.3); border-bottom: none;
+            color: #888; font-size: 10px; font-weight: 700; letter-spacing: 1.5px;
+        }
+        .lib-tab.active { background: rgba(102, 126, 234, 0.25); color: #fff; }
+        .online-panel { flex: 1; display: none; flex-direction: column; min-height: 0; padding: 10px 12px 12px; gap: 8px; }
+        .online-panel.show { display: flex; }
+        .ol-search { display: flex; gap: 6px; }
+        .ol-search input {
+            flex: 1; min-width: 0; padding: 8px 10px; border-radius: 8px; font: inherit; font-size: 12px;
+            background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.15); color: #fff;
+        }
+        .ol-search input:focus { outline: none; border-color: #00d4ff; }
+        .ol-search button {
+            padding: 0 12px; border-radius: 8px; border: none; cursor: pointer; font-family: inherit;
+            background: #00d4ff; color: #001018; font-size: 11px; font-weight: 800; letter-spacing: 1px;
+        }
+        .ol-cats { display: flex; gap: 6px; }
+        .ol-cat {
+            flex: 1; padding: 5px 0; border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 9px; font-weight: 700; letter-spacing: 1.2px;
+            background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.15); color: #999;
+        }
+        .ol-cat.active { border-color: #00ff88; color: #00ff88; }
+        .ol-results { flex: 1; overflow-y: auto; min-height: 0; }
+        .ol-msg { color: #888; font-size: 12px; text-align: center; padding: 24px 8px; line-height: 1.5; }
+        .ol-msg.err { color: #ff6b7a; }
+        .ol-lic { color: #00ff88; text-decoration: none; }
+        .ol-lic:hover { text-decoration: underline; }
+        .ol-pad { font-size: 7px !important; padding: 0; letter-spacing: 0; color: #ffb347 !important; border-color: #ffb347 !important; }
+        .ol-item { gap: 8px; padding: 10px; }
+        .ol-item .playlist-thumbnail-container, .ol-item .playlist-thumbnail, .ol-item .playlist-thumbnail-img { width: 40px; height: 40px; font-size: 20px; }
+        .ol-item .playlist-actions { gap: 4px; }
+        .ol-credit { font-size: 9px; color: #777; line-height: 1.4; }
+        .ol-credit a { color: #00d4ff; }
+        body.pad-arming .pad-bank.mode-sampler .drum-pad { animation: mxBlink 0.7s infinite; border-color: #ffb347 !important; }
     </style>
 </head>
 <body>
@@ -2427,7 +2466,8 @@
                     }
                     (track.listeners || []).forEach(f => f(1));
                     const buf = await getAudioContext().decodeAudioData(bytes);
-                    if (!track.bpm) track.bpm = detectBPM(buf);
+                    await fillTrackInfo(track, buf);
+                    if (!track.bpm) track.bpm = 120;
                     return buf;
                 })();
             }
@@ -2442,7 +2482,8 @@
                 return buf;
             } catch (err) {
                 console.error(`Error loading ${track.file}:`, err);
-                showNotification(`Could not load ${track.title}`, 'error');
+                showNotification(track.online ? `${track.title}: this source only allows basic playback (no waveform / EQ / FX)`
+                                              : `Could not load ${track.title}`, track.online ? 'success' : 'error');
                 return null;
             } finally {
                 track.pending = null;
@@ -2456,13 +2497,14 @@
             tracks[side].key = track.key || '--';  // Add key support
             tracks[side].pauseTime = 0;
             
-            document.getElementById(side + 'BPM').textContent = Math.round(track.bpm);
+            tracks[side].gridOffset = track.gridOffset;
+            document.getElementById(side + 'BPM').textContent = track.bpm ? Math.round(track.bpm) : '--';
             document.getElementById(side + 'TrackName').textContent = track.title;
             
             // Update key display if element exists
             const keyElement = document.getElementById(side + 'Key');
             if (keyElement) {
-                keyElement.textContent = tracks[side].key;
+                keyElement.textContent = (typeof keyLabel === 'function' && keyLabel(track)) || tracks[side].key;
             }
             
             // Update artist image in turntable
@@ -4605,13 +4647,17 @@
                 ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
                 ctx.fillStyle = 'rgba(10, 10, 20, 0.95)'; ctx.fillRect(0, 0, cw, ch);
                 const a = s.audio, dur = a.duration || 0, pos = a.currentTime || 0, by = ch - 12;
+                if (s.basic) {                               // basic mode: follow crossfader + channel fader by volume
+                    const v = +document.getElementById('trackSlider').value;
+                    a.volume = Math.max(0, Math.min(1, (side === 'left' ? (100 - v) : v) / 100 * Math.pow(mixState[side].vol / 127, 1.5)));
+                }
                 ctx.fillStyle = 'rgba(255,255,255,0.08)'; ctx.fillRect(0, by, cw, 5);
                 ctx.fillStyle = '#00d4ff'; ctx.fillRect(0, by, cw * s.pct, 5);
                 if (dur) { ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillRect(Math.round(pos / dur * cw), 0, 1, ch); }
                 ctx.font = '600 11px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,0.65)';
                 const msg = !s.fetching ? (a.paused || !pos ? 'Starting playback…' : 'Playing · preparing waveform…')
                           : s.pct < 1 ? `Playing · loading waveform ${Math.round(s.pct * 100)}%` : 'Playing · analysing waveform…';
-                ctx.fillText(msg, cw / 2, ch / 2);
+                ctx.fillText(s.basic ? 'Playing · basic mode (this source blocks waveform analysis)' : msg, cw / 2, ch / 2);
                 ctx.textAlign = 'start';
                 document.getElementById(side + 'Time').textContent =
                     formatTime(Math.floor(pos)) + ' / ' + (dur ? formatTime(Math.floor(dur)) : '--:--');
@@ -4640,6 +4686,17 @@
             audio.src = track.url + (track.url.indexOf('?') === -1 ? '?' : '&') + 'stream=1';
             const node = ctx.createMediaElementSource(audio);
             node.connect(chain.input);                   // EQ, CFX, fader and crossfader work straight away
+            if (track.online) {
+                audio.addEventListener('error', () => {
+                    const st = deckStream[side];
+                    if (!st || st.audio !== audio || st.basic) return;
+                    try { st.node.disconnect(); } catch (e) {}
+                    const plain = new Audio();
+                    plain.preload = 'auto'; plain.loop = true; plain.src = track.url;
+                    st.audio = plain; st.basic = true;
+                    plain.play().then(() => { if (deckStream[side] === st && !st.userPaused) setPlayUI(side, true); }).catch(() => {});
+                }, { once: true });
+            }
             const sl = document.getElementById('trackSlider').value;
             chain.xfade.gain.value = side === 'left' ? (100 - sl) / 100 : sl / 100;
             tracks[side].gainNode = chain.xfade;
@@ -4658,7 +4715,11 @@
                     reportLoad(side, s.title, s.tSound, performance.now() - s.t0);
                     tracks[side].buffer = buf;
                     tracks[side].bpm = track.bpm;
+                    tracks[side].key = track.key;
+                    tracks[side].gridOffset = track.gridOffset;
                     drawWaveform(buf, side);
+                    setDeckKey(side, track);
+                    if (track.analyzed) renderPlaylist();
                     tracks[side].pauseTime = Math.min(st.pos, buf.duration - 0.05);
                     if (!s.userPaused) playTrack(side); else jogSeek(side, 0);
                 });
@@ -4790,6 +4851,468 @@
 
         buildBanks();
         buildSyncButtons();
+    </script>
+    <script>
+// IntelliCARE DJ track analyser: BPM (spectral-flux onset + autocorrelation comb) and key (chroma + key profiles).
+// Pure function so it can run inside a Web Worker. Input: mono Float32Array at sample rate `sr` (11025 Hz).
+function ICDJ_ANALYZE(x, sr, opts) {
+    opts = opts || {};
+    // ---------- FFT ----------
+    function makeFFT(n) {
+        const rev = new Uint32Array(n), bits = Math.log2(n);
+        for (let i = 0; i < n; i++) { let r = 0, v = i; for (let b = 0; b < bits; b++) { r = (r << 1) | (v & 1); v >>= 1; } rev[i] = r; }
+        const cos = new Float32Array(n / 2), sin = new Float32Array(n / 2);
+        for (let i = 0; i < n / 2; i++) { cos[i] = Math.cos(2 * Math.PI * i / n); sin[i] = -Math.sin(2 * Math.PI * i / n); }
+        const re = new Float32Array(n), im = new Float32Array(n);
+        return function(input, mag) {           // input: Float32Array(n) windowed; mag: Float32Array(n/2)
+            for (let i = 0; i < n; i++) { re[rev[i]] = input[i]; im[rev[i]] = 0; }
+            for (let size = 2; size <= n; size <<= 1) {
+                const half = size >> 1, step = n / size;
+                for (let i = 0; i < n; i += size) {
+                    for (let j = 0, k = 0; j < half; j++, k += step) {
+                        const a = i + j, b = a + half;
+                        const tr = re[b] * cos[k] - im[b] * sin[k], ti = re[b] * sin[k] + im[b] * cos[k];
+                        re[b] = re[a] - tr; im[b] = im[a] - ti; re[a] += tr; im[a] += ti;
+                    }
+                }
+            }
+            for (let i = 0; i < n / 2; i++) mag[i] = Math.sqrt(re[i] * re[i] + im[i] * im[i]);
+        };
+    }
+    function hann(n) { const w = new Float32Array(n); for (let i = 0; i < n; i++) w[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1)); return w; }
+
+    // ---------- BPM ----------
+    function bpm() {
+        const N = 1024, H = 128, fps = sr / H;
+        const maxLen = Math.min(x.length, Math.floor(sr * 150));
+        const start = Math.max(0, Math.floor((x.length - maxLen) / 2));
+        const frames = Math.floor((maxLen - N) / H);
+        if (frames < 200) return { bpm: 0, conf: 0, offset: 0 };
+        const fft = makeFFT(N), win = hann(N), buf = new Float32Array(N), mag = new Float32Array(N / 2);
+        let prev = new Float32Array(N / 2), cur = new Float32Array(N / 2);
+        const flux = new Float32Array(frames);
+        const kMax = Math.floor(N / 2 * 5000 / (sr / 2));
+        for (let f = 0; f < frames; f++) {
+            const o = start + f * H;
+            for (let i = 0; i < N; i++) buf[i] = x[o + i] * win[i];
+            fft(buf, mag);
+            let s = 0;
+            for (let k = 1; k < kMax; k++) {
+                cur[k] = Math.log(1 + 1000 * mag[k]);
+                const d = cur[k] - prev[k];
+                if (d > 0) s += d;
+            }
+            flux[f] = s;
+            const t = prev; prev = cur; cur = t;
+        }
+        // remove local mean, half-wave rectify
+        const W = Math.round(fps * 0.4), onset = new Float32Array(frames);
+        let acc = 0;
+        for (let i = 0; i < frames; i++) {
+            acc += flux[i]; if (i >= W) acc -= flux[i - W];
+            const m = acc / Math.min(i + 1, W);
+            onset[i] = Math.max(0, flux[i] - m);
+        }
+        // autocorrelation up to 8 beats at 60 BPM
+        const maxLag = Math.ceil(fps * 60 / 60 * 8) + 2;
+        const r = new Float32Array(maxLag);
+        for (let l = 0; l < maxLag; l++) { let s = 0; for (let i = l; i < frames; i++) s += onset[i] * onset[i - l]; r[l] = s / (frames - l); }
+        const rAt = L => { const i = Math.floor(L), f = L - i; return i + 1 < maxLag ? r[i] * (1 - f) + r[i + 1] * f : 0; };
+        let best = 0, bestS = -1;
+        const scores = [];
+        for (let b = 60; b <= 200; b += 0.05) {
+            const L = fps * 60 / b;
+            let s = 0;
+            for (let k = 1; k <= 8; k++) { const lk = k * L; if (lk < maxLag - 1) s += rAt(lk); }
+            s += 0.5 * rAt(L / 2);                       // reward off-beat energy at half the period
+            const prior = Math.exp(-0.5 * Math.pow(Math.log2(b / 110) / 1.2, 2));
+            const sc = s * prior;
+            scores.push(sc);
+            if (sc > bestS) { bestS = sc; best = b; }
+        }
+        const sorted = scores.slice().sort((a, b) => b - a);
+        const conf = sorted.length > 40 ? Math.max(0, Math.min(1, (bestS - sorted[Math.floor(sorted.length * 0.5)]) / bestS)) : 0;
+        let out = Math.round(best * 10) / 10;
+        if (Math.abs(out - Math.round(out)) <= 0.25) out = Math.round(out);
+        // beat phase: strongest onset alignment of a beat grid
+        const L = fps * 60 / out;
+        let bestP = 0, bestPS = -1;
+        for (let p = 0; p < L; p += 0.5) {
+            let s = 0;
+            for (let t = p; t < frames; t += L) s += onset[Math.round(t)] || 0;
+            if (s > bestPS) { bestPS = s; bestP = p; }
+        }
+        const offset = ((start + bestP * H) / sr) % (60 / out);
+        return { bpm: out, conf, offset };
+    }
+
+    // ---------- KEY ----------
+    const PROFILES = {
+        major: [6.6, 2.0, 3.5, 2.3, 4.6, 4.0, 2.5, 5.2, 2.4, 3.7, 2.3, 3.4],
+        minor: [6.5, 2.7, 3.5, 5.4, 2.6, 3.5, 2.5, 5.2, 4.0, 2.7, 4.3, 3.2]
+    };
+    if (opts.profiles) { PROFILES.major = opts.profiles.major; PROFILES.minor = opts.profiles.minor; }
+    function key() {
+        // Pitch salience per semitone (C3–C6) = fundamental + weighted harmonics, so a note's own
+        // overtones don't masquerade as the fifth above it. Then match against 24 key profiles.
+        const N = 8192, H = 4096, LO = 48, HI = 84, HARM = [1, 0.5, 0.33, 0.25], MAJ_BIAS = 0.02;
+        const frames = Math.floor((x.length - N) / H);
+        if (frames < 4) return null;
+        const fft = makeFFT(N), win = hann(N), buf = new Float32Array(N), mag = new Float32Array(N / 2);
+        const noteBins = [];
+        for (let n = LO; n <= HI; n++) {
+            const f = 440 * Math.pow(2, (n - 69) / 12), bins = [];
+            HARM.forEach((w, h) => { const fh = f * (h + 1); if (fh < sr / 2 - 20) bins.push([Math.round(fh * N / sr), w]); });
+            noteBins.push(bins);
+        }
+        const chroma = new Float64Array(12), s = new Float64Array(HI - LO + 1);
+        for (let fr = 0; fr < frames; fr++) {
+            const o = fr * H;
+            let e = 0;
+            for (let i = 0; i < N; i++) { buf[i] = x[o + i] * win[i]; e += buf[i] * buf[i]; }
+            if (e < 1e-4) continue;
+            fft(buf, mag);
+            let m = 0;
+            for (let j = 0; j < noteBins.length; j++) {
+                let v = 0;
+                for (const [k, w] of noteBins[j]) v += w * Math.max(mag[k - 1] || 0, mag[k], mag[k + 1] || 0);
+                s[j] = v; if (v > m) m = v;
+            }
+            if (m > 0) for (let j = 0; j < noteBins.length; j++) chroma[(LO + j) % 12] += s[j] / m;
+        }
+        const corr = (a, b) => {
+            let ma = 0, mb = 0; for (let i = 0; i < 12; i++) { ma += a[i]; mb += b[i]; } ma /= 12; mb /= 12;
+            let sum = 0, sa = 0, sb = 0;
+            for (let i = 0; i < 12; i++) { const da = a[i] - ma, db = b[i] - mb; sum += da * db; sa += da * da; sb += db * db; }
+            return sum / Math.sqrt(sa * sb || 1);
+        };
+        let best = null;
+        const all = [];
+        for (const mode of ['major', 'minor']) {
+            for (let t = 0; t < 12; t++) {
+                const prof = new Array(12);
+                for (let i = 0; i < 12; i++) prof[(i + t) % 12] = PROFILES[mode][i];
+                const sc = corr(chroma, prof) + (mode === 'major' ? MAJ_BIAS : 0);
+                all.push(sc);
+                if (!best || sc > best.s) best = { tonic: t, mode, s: sc };
+            }
+        }
+        all.sort((a, b) => b - a);
+        best.conf = Math.max(0, Math.min(1, (all[0] - all[1]) * 5));
+        return best;
+    }
+
+    const MAJ = ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'];
+    const MIN = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+    const CAM_MAJ = ['8B', '3B', '10B', '5B', '12B', '7B', '2B', '9B', '4B', '11B', '6B', '1B'];
+    const CAM_MIN = ['5A', '12A', '7A', '2A', '9A', '4A', '11A', '6A', '1A', '8A', '3A', '10A'];
+    const b = bpm(), k = key();
+    return {
+        bpm: b.bpm, bpmConf: b.conf, offset: b.offset,
+        key: k ? (k.mode === 'major' ? MAJ[k.tonic] + ' major' : MIN[k.tonic] + ' minor') : '--',
+        camelot: k ? (k.mode === 'major' ? CAM_MAJ[k.tonic] : CAM_MIN[k.tonic]) : '',
+        keyConf: k ? k.conf : 0, tonic: k ? k.tonic : -1, mode: k ? k.mode : ''
+    };
+}
+
+        // ===================== TRACK ANALYSIS (BPM + KEY) =====================
+        // Runs in a background Web Worker so the decks never stutter while a track is analysed.
+        let icdjWorker = null, icdjJobs = {}, icdjJobId = 0;
+        function analysisWorker() {
+            if (icdjWorker) return icdjWorker;
+            const src = ICDJ_ANALYZE.toString() +
+                '\nself.onmessage = e => { let r; try { r = ICDJ_ANALYZE(e.data.x, e.data.sr); } catch (err) { r = { error: String(err) }; } self.postMessage({ id: e.data.id, r }); };';
+            icdjWorker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+            icdjWorker.onmessage = e => { const job = icdjJobs[e.data.id]; delete icdjJobs[e.data.id]; if (job) job(e.data.r); };
+            return icdjWorker;
+        }
+        // AudioBuffer → { bpm, key, camelot, offset, … }
+        async function analyzeBuffer(buffer) {
+            const sr = 11025;
+            const off = new OfflineAudioContext(1, Math.max(1, Math.ceil(buffer.duration * sr)), sr);
+            const src = off.createBufferSource();
+            src.buffer = buffer; src.connect(off.destination); src.start();
+            const mono = (await off.startRendering()).getChannelData(0);
+            const x = new Float32Array(mono);   // copy so it can be transferred to the worker
+            const id = ++icdjJobId;
+            return new Promise(resolve => {
+                icdjJobs[id] = r => resolve(r && !r.error ? r : null);
+                analysisWorker().postMessage({ id, x, sr }, [x.buffer]);
+            });
+        }
+        function keyLabel(track) {
+            if (!track.key || track.key === '--') return '';
+            return track.key + (track.camelot ? ' (' + track.camelot + ')' : '');
+        }
+        function setDeckKey(side, track) {
+            const el = document.getElementById(side + 'Key');
+            if (el) el.textContent = keyLabel(track) || '--';
+        }
+        // Fill in BPM / key a track doesn't have yet (uploaded or online tracks); playlist.json values are kept
+        async function fillTrackInfo(track, buffer) {
+            const needBpm = !track.bpm, needKey = !track.key || track.key === '--';
+            if (!needBpm && !needKey) return track;
+            const a = await analyzeBuffer(buffer);
+            if (!a) return track;
+            if (needBpm && a.bpm) track.bpm = a.bpm;
+            if (needKey && a.key) { track.key = a.key; track.camelot = a.camelot; }
+            track.gridOffset = a.offset;
+            track.analyzed = true;
+            return track;
+        }
+
+        // Uploaded to a deck (click a turntable): analyse, then load with BPM, key and beat grid
+        loadTrackFile = function(side, file) {
+            if (tracks[side].isPlaying) stopTrack(side);
+            const ctx = getAudioContext() || new (window.AudioContext || window.webkitAudioContext)();
+            const fileName = file.name.replace(/\.[^/.]+$/, '');
+            showNotification(`Analysing ${fileName}…`, 'success');
+            file.arrayBuffer().then(ab => ctx.decodeAudioData(ab)).then(async buffer => {
+                const info = await fillTrackInfo({ title: fileName, bpm: 0, key: '--' }, buffer);
+                tracks[side].buffer = buffer;
+                tracks[side].bpm = info.bpm || 120;
+                tracks[side].name = fileName;
+                tracks[side].key = info.key;
+                tracks[side].pauseTime = 0;
+                document.getElementById(side + 'BPM').textContent = Math.round(tracks[side].bpm);
+                document.getElementById(side + 'TrackName').textContent = fileName;
+                setDeckKey(side, info);
+                const img = document.getElementById(side + 'ArtistImg');
+                if (img) img.style.display = 'none';
+                document.getElementById(side + 'Turntable').classList.add('loaded');
+                document.getElementById(side + 'Eject').disabled = false;
+                drawWaveform(buffer, side);
+                if (rgbWave[side] && typeof info.gridOffset === 'number') { rgbWave[side].offset = info.gridOffset; refreshWave(side); }
+                showNotification(`${side.toUpperCase()}: ${fileName} · ${Math.round(tracks[side].bpm)} BPM · ${keyLabel(info) || 'key ?'}`, 'success');
+            }).catch(() => showNotification('Error loading track!', 'error'));
+        };
+
+        // Uploaded with "+": analyse each file, then add to My Tracks
+        (function replacePlaylistUpload() {
+            const old = document.getElementById('playlistFileInput');
+            if (!old) return;
+            const input = old.cloneNode(true);          // drops the old listener
+            old.parentNode.replaceChild(input, old);
+            input.addEventListener('change', e => {
+                const files = Array.from(e.target.files);
+                const ctx = getAudioContext() || new (window.AudioContext || window.webkitAudioContext)();
+                files.forEach(file => {
+                    const title = file.name.replace(/\.[^/.]+$/, '');
+                    showNotification(`Analysing ${title}…`, 'success');
+                    file.arrayBuffer().then(ab => ctx.decodeAudioData(ab)).then(async buffer => {
+                        const track = { id: Date.now() + Math.random(), title, artist: 'My upload', bpm: 0, key: '--',
+                                        file: file.name, url: URL.createObjectURL(file), buffer: USE_HTML5_AUDIO ? null : buffer };
+                        await fillTrackInfo(track, buffer);
+                        if (!track.bpm) track.bpm = 120;
+                        playlist.push(track);
+                        if (!USE_HTML5_AUDIO && decodedCache.indexOf(track) === -1) decodedCache.push(track);
+                        renderPlaylist();
+                        showNotification(`Added ${title} · ${Math.round(track.bpm)} BPM · ${keyLabel(track) || 'key ?'}`, 'success');
+                    }).catch(() => showNotification(`Could not read ${file.name}`, 'error'));
+                });
+                e.target.value = '';
+            });
+        })();
+
+        // ===================== ONLINE MUSIC & SAMPLES (Openverse, no sign-in) =====================
+        // Openverse (by WordPress) indexes openly licensed audio from Jamendo, Freesound, ccMixter,
+        // Wikimedia and others. Anonymous search is free and rate-limited.
+        const OV_API = 'https://api.openverse.org/v1/audio/';
+        let onlineResults = [], onlineCat = 'music', pendingPadSample = null;
+
+        function fmtDur(ms) { if (!ms) return ''; const s = Math.round(ms / 1000); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+        function escHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+        function buildLibraryTabs() {
+            const header = document.querySelector('.playlist-header');
+            const list = document.getElementById('playlistContainer');
+            if (!header || !list) return;
+            const tabs = document.createElement('div');
+            tabs.className = 'lib-tabs';
+            tabs.innerHTML = '<button class="lib-tab active" data-tab="mine">MY TRACKS</button><button class="lib-tab" data-tab="online">ONLINE</button>';
+            header.insertAdjacentElement('afterend', tabs);
+            const panel = document.createElement('div');
+            panel.className = 'online-panel';
+            panel.id = 'onlinePanel';
+            panel.innerHTML = `
+                <form class="ol-search" id="olForm">
+                    <input id="olQuery" type="search" placeholder="Search e.g. house, lofi, drum loop" autocomplete="off">
+                    <button type="submit">GO</button>
+                </form>
+                <div class="ol-cats">
+                    <button class="ol-cat active" data-cat="music">MUSIC</button>
+                    <button class="ol-cat" data-cat="sound_effect">SAMPLES</button>
+                </div>
+                <div class="ol-results" id="olResults"><div class="ol-msg">Search free, openly licensed music and samples. No sign-in needed.</div></div>
+                <div class="ol-credit">Results from <a href="https://openverse.org" target="_blank" rel="noopener">Openverse</a> · Creative Commons &amp; public domain. Credit the creator when you use a track.</div>`;
+            list.insertAdjacentElement('afterend', panel);
+            tabs.querySelectorAll('.lib-tab').forEach(b => b.addEventListener('click', () => {
+                tabs.querySelectorAll('.lib-tab').forEach(x => x.classList.toggle('active', x === b));
+                const online = b.dataset.tab === 'online';
+                panel.classList.toggle('show', online);
+                list.style.display = online ? 'none' : '';
+                if (online && !onlineResults.length) searchOnline(document.getElementById('olQuery').value || 'electronic');
+            }));
+            panel.querySelectorAll('.ol-cat').forEach(b => b.addEventListener('click', () => {
+                panel.querySelectorAll('.ol-cat').forEach(x => x.classList.toggle('active', x === b));
+                onlineCat = b.dataset.cat;
+                searchOnline(document.getElementById('olQuery').value || (onlineCat === 'music' ? 'electronic' : 'drum'));
+            }));
+            document.getElementById('olForm').addEventListener('submit', e => {
+                e.preventDefault();
+                searchOnline(document.getElementById('olQuery').value);
+            });
+        }
+
+        async function searchOnline(q) {
+            q = (q || '').trim();
+            if (!q) return;
+            const box = document.getElementById('olResults');
+            box.innerHTML = '<div class="ol-msg">Searching…</div>';
+            const params = new URLSearchParams({ q, page_size: '20', category: onlineCat, mature: 'false' });
+            if (onlineCat === 'music') params.set('length', 'medium,long');
+            try {
+                const res = await fetch(OV_API + '?' + params.toString());
+                if (res.status === 429) throw new Error('Too many searches for now. Wait a minute and try again.');
+                if (!res.ok) throw new Error('Search failed (' + res.status + ')');
+                const data = await res.json();
+                onlineResults = (data.results || []).filter(r => r.url);
+                renderOnline();
+            } catch (err) {
+                box.innerHTML = `<div class="ol-msg err">${escHtml(err.message || 'Could not reach Openverse.')}</div>`;
+            }
+        }
+
+        function renderOnline() {
+            const box = document.getElementById('olResults');
+            if (!onlineResults.length) { box.innerHTML = '<div class="ol-msg">No results. Try another word.</div>'; return; }
+            box.innerHTML = '';
+            onlineResults.forEach((r, i) => {
+                const item = document.createElement('div');
+                item.className = 'playlist-item ol-item';
+                const lic = (r.license || '').toUpperCase() + (r.license_version ? ' ' + r.license_version : '');
+                const thumb = r.thumbnail
+                    ? `<img class="playlist-thumbnail-img" src="${escHtml(r.thumbnail)}" alt="" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="playlist-thumbnail" style="display:none;">${onlineCat === 'music' ? '🎵' : '🥁'}</div>`
+                    : `<div class="playlist-thumbnail">${onlineCat === 'music' ? '🎵' : '🥁'}</div>`;
+                item.innerHTML = `
+                    <div class="playlist-thumbnail-container">${thumb}</div>
+                    <div class="playlist-info">
+                        <div class="playlist-song" title="${escHtml(r.title)}">${escHtml(r.title || 'Untitled')}</div>
+                        <div class="playlist-artist">${escHtml(r.creator || 'Unknown')}</div>
+                        <div class="playlist-bpm"><a href="${escHtml(r.foreign_landing_url || '#')}" target="_blank" rel="noopener" class="ol-lic">${escHtml(lic)}</a> · ${escHtml(r.source || '')}${r.duration ? ' · ' + fmtDur(r.duration) : ''}</div>
+                    </div>
+                    <div class="playlist-actions">
+                        <button class="load-btn left" data-act="L">L</button>
+                        <button class="load-btn right" data-act="R">R</button>
+                    </div>`;
+                item.querySelector('[data-act="L"]').addEventListener('click', () => loadOnline(i, 'left'));
+                item.querySelector('[data-act="R"]').addEventListener('click', () => loadOnline(i, 'right'));
+                box.appendChild(item);
+            });
+        }
+
+        // Online track → added to My Tracks (this session) → loaded like any other track.
+        // BPM and key are detected automatically once the audio has downloaded.
+        function loadOnline(i, side) {
+            const r = onlineResults[i];
+            if (!r) return;
+            let idx = playlist.findIndex(t => t.onlineId === r.id);
+            if (idx === -1) {
+                playlist.push({ id: Date.now() + Math.random(), onlineId: r.id, title: r.title || 'Untitled', artist: r.creator || 'Unknown',
+                                url: r.url, thumb: r.thumbnail || '', bpm: 0, key: '--', file: r.title || r.id, online: true,
+                                credit: `${r.title} by ${r.creator} (${(r.license || '').toUpperCase()} ${r.license_version || ''}) via ${r.source}` });
+                idx = playlist.length - 1;
+                renderPlaylist();
+            }
+            loadFromPlaylist(idx, side);
+        }
+
+        // Samples → pads: press PAD on a result, then click / press the pad to load it into
+        function armPadSample(i) {
+            const r = onlineResults[i];
+            if (!r) return;
+            pendingPadSample = r;
+            document.body.classList.add('pad-arming');
+            showNotification(`Now click a pad to load "${r.title}" (pads in SAMPLER mode)`, 'success');
+        }
+        async function loadSampleIntoPad(index, r) {
+            const pad = pads[index];
+            const name = (r.title || 'Sample').slice(0, 18);
+            showNotification(`Loading "${name}" into pad ${pad.config.key}…`, 'success');
+            try {
+                if (USE_HTML5_AUDIO) {
+                    const audio = new Audio(r.url);
+                    audio.preload = 'auto';
+                    pad.audioElement = audio;
+                    pad.audioURL = r.url;
+                } else {
+                    const res = await fetch(r.url);
+                    if (!res.ok) throw new Error(res.status);
+                    pad.audioBuffer = await getAudioContext().decodeAudioData(await res.arrayBuffer());
+                }
+                pad.config.name = name;
+                const nm = pad.element.querySelector('.pad-name');
+                if (nm) nm.textContent = name;
+                const ic = pad.element.querySelector('.pad-icon');
+                if (ic) ic.textContent = '🌐';
+                updatePadDisplay(index);
+                showNotification(`Pad ${pad.config.key}: ${name}`, 'success');
+            } catch (e) {
+                showNotification('This sample\'s host does not allow direct loading. Try another one.', 'error');
+            }
+        }
+        const olPrevPadDown = padDown;
+        padDown = function(index, shifted) {
+            const side = index >= 8 ? 'left' : 'right';
+            if (pendingPadSample && perf[side].mode === 'sampler') {
+                const r = pendingPadSample;
+                pendingPadSample = null;
+                document.body.classList.remove('pad-arming');
+                loadSampleIntoPad(index, r);
+                return;
+            }
+            return olPrevPadDown(index, shifted);
+        };
+
+        // Playlist thumbnails for online tracks + "—" when BPM is still being detected
+        const olPrevRender = renderPlaylist;
+        renderPlaylist = function() {
+            olPrevRender();
+            const items = document.querySelectorAll('#playlistContainer .playlist-item');
+            playlist.forEach((t, i) => {
+                const it = items[i];
+                if (!it) return;
+                const bpmEl = it.querySelector('.playlist-bpm');
+                if (bpmEl) bpmEl.textContent = (t.bpm ? Math.round(t.bpm) + ' BPM' : '— BPM') + (keyLabel(t) ? ' • ' + keyLabel(t) : '') + (t.analyzed ? ' · auto' : '');
+                if (t.thumb) {
+                    const c = it.querySelector('.playlist-thumbnail-container');
+                    if (c) c.innerHTML = `<img class="playlist-thumbnail-img" src="${escHtml(t.thumb)}" alt="" onerror="this.style.display='none'">`;
+                }
+                if (t.credit) it.title = t.credit;
+            });
+        };
+
+        buildLibraryTabs();
+
+        // Beat grid from the analyser (more accurate than the first-bass-hit estimate)
+        const exPrevDraw = drawWaveform;
+        drawWaveform = function(buffer, side) {
+            const r = exPrevDraw(buffer, side);
+            const off = tracks[side].gridOffset;
+            if (rgbWave[side] && typeof off === 'number') { rgbWave[side].offset = off; refreshWave(side); }
+            else if (!USE_HTML5_AUDIO && buffer) {
+                // Tracks with BPM/key from playlist.json: still find the beat grid in the background
+                analyzeBuffer(buffer).then(a => {
+                    if (!a || tracks[side].buffer !== buffer || !rgbWave[side]) return;
+                    const bpm = tracks[side].bpm || 0;
+                    if (Math.abs(a.bpm - bpm) > 1) return;          // only trust it when the tempo agrees
+                    tracks[side].gridOffset = a.offset;
+                    rgbWave[side].offset = a.offset;
+                    refreshWave(side);
+                });
+            }
+            return r;
+        };
     </script>
 </body>
 </html>
