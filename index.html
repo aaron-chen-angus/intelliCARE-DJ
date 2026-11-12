@@ -1825,7 +1825,11 @@
         const GITHUB_REPO = 'intelliCARE-DJ';
         const GITHUB_BRANCH = 'main';
         // Use GitHub Pages URL instead of raw.githubusercontent.com
-        const BASE_URL = `https://${GITHUB_USER}.github.io/${GITHUB_REPO}`;
+        // Load tracks/sounds/artists from wherever this page is hosted (GitHub Pages, Cloudflare Pages …);
+        // when opened as a local file, fall back to the GitHub Pages copy.
+        const BASE_URL = location.protocol.indexOf('http') === 0
+            ? (location.origin + location.pathname.replace(/[^/]*$/, '')).replace(/\/$/, '')
+            : `https://${GITHUB_USER}.github.io/${GITHUB_REPO}`;
 
         // Pad configuration with your exact filenames
         const padConfigs = [
@@ -2431,7 +2435,7 @@
                 const buf = await track.pending;
                 track.buffer = buf;
                 if (decodedCache.indexOf(track) === -1) decodedCache.push(track);
-                while (decodedCache.length > 6) {
+                while (decodedCache.length > 3) {
                     const old = decodedCache.shift();
                     if (old !== track && old.buffer !== tracks.left.buffer && old.buffer !== tracks.right.buffer) old.buffer = null;
                 }
@@ -2464,7 +2468,6 @@
             // Update artist image in turntable
             const img = document.getElementById(side + 'ArtistImg');
             if (track.artistImage && img) {
-                const BASE_URL = 'https://aaron-chen-angus.github.io/intelliCARE-DJ';
                 img.src = `${BASE_URL}/artists/${track.artistImage}`;
                 img.style.display = 'block';
                 img.onerror = () => { 
@@ -2507,11 +2510,8 @@
         async function loadFromPlaylist(index, side) {
             const track = playlist[index];
             if (!USE_HTML5_AUDIO && !track.buffer) {
-                showNotification(`Loading ${track.title}…`, 'success');
-                if (!(await quickLoad(track, 1500))) {
-                    streamTrack(index, side);   // slow connection: start playing now, waveform swaps in later
-                    return;
-                }
+                streamTrack(index, side);   // plays at once; the full download runs in parallel and swaps in
+                return;
             }
             
             if (tracks[side].isPlaying) {
@@ -3589,6 +3589,7 @@
         <div class="mx-grid" id="mxGrid"></div>
         <div class="mx-hint" id="midiHint">Click any cell, then move that control on the DDJ-FLX2 to re-map it.</div>
         <div class="mx-mon">Last MIDI: <span id="midiMon">—</span></div>
+        <div class="mx-mon">Last track load: <span id="loadTiming">—</span></div>
         <button class="mx-reset" onclick="resetMidiMap()">Reset to default DDJ-FLX2 mapping</button>
     </div>
 
@@ -4617,6 +4618,12 @@
             }
             s.raf = requestAnimationFrame(() => drawStream(side));
         }
+        function reportLoad(side, title, tSound, tFull) {
+            const msg = `${side.toUpperCase()} · ${title}: sound ${tSound ? (tSound / 1000).toFixed(1) + ' s' : 'n/a'} · full waveform ${(tFull / 1000).toFixed(1)} s`;
+            console.log('⏱ ' + msg);
+            const el = document.getElementById('loadTiming');
+            if (el) el.textContent = msg;
+        }
         function streamTrack(index, side) {
             const track = playlist[index];
             if (tracks[side].isPlaying) stopTrack(side);
@@ -4636,7 +4643,8 @@
             const sl = document.getElementById('trackSlider').value;
             chain.xfade.gain.value = side === 'left' ? (100 - sl) / 100 : sl / 100;
             tracks[side].gainNode = chain.xfade;
-            const s = { audio, node, raf: 0, pct: 0, fetching: false, userPaused: false };
+            const s = { audio, node, raf: 0, pct: 0, fetching: false, userPaused: false, t0: performance.now(), title: track.title };
+            audio.addEventListener('playing', () => { if (!s.tSound) s.tSound = performance.now() - s.t0; }, { once: true });
             deckStream[side] = s;
             audio.play().then(() => { if (deckStream[side] === s) setPlayUI(side, true); }).catch(e => console.warn('Stream play:', e));
             drawStream(side);
@@ -4647,6 +4655,7 @@
                 ensureTrackBuffer(track, p => { s.pct = p; }).then(buf => {
                     if (!buf || deckStream[side] !== s) return;
                     const st = stopStream(side);
+                    reportLoad(side, s.title, s.tSound, performance.now() - s.t0);
                     tracks[side].buffer = buf;
                     tracks[side].bpm = track.bpm;
                     drawWaveform(buf, side);
@@ -4654,9 +4663,7 @@
                     if (!s.userPaused) playTrack(side); else jogSeek(side, 0);
                 });
             };
-            audio.addEventListener('playing', () => setTimeout(startFetch, 1500), { once: true });
-            audio.addEventListener('error', startFetch, { once: true });
-            setTimeout(startFetch, 6000);
+            startFetch();
         }
 
         // Transport while a deck is still streaming
