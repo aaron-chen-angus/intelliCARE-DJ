@@ -1716,6 +1716,27 @@
         .ol-credit { font-size: 9px; color: #777; line-height: 1.4; }
         .ol-credit a { color: #00d4ff; }
         body.pad-arming .pad-bank.mode-sampler .drum-pad { animation: mxBlink 0.7s infinite; border-color: #ffb347 !important; }
+
+        /* ===== Tempo panels (next to PLAY) ===== */
+        .tempo-panel { display: flex; flex-direction: column; gap: 5px; width: 230px; }
+        .tp-top { display: flex; align-items: center; gap: 5px; }
+        .tp-label { font-size: 9px; font-weight: 700; letter-spacing: 1.5px; color: #888; }
+        .tp-pct { flex: 1; font-size: 13px; font-weight: 800; color: #00ff88; font-variant-numeric: tabular-nums; }
+        .tempo-panel.locked .tp-pct { color: #00d4ff; }
+        .tp-btn {
+            padding: 3px 6px; border-radius: 5px; cursor: pointer; font-family: inherit; font-size: 9px; font-weight: 700; letter-spacing: 0.5px;
+            background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.18); color: #aaa; min-width: 34px;
+        }
+        .tp-btn:hover { border-color: #00d4ff; color: #fff; }
+        .tp-btn.active { background: #00d4ff; border-color: #00d4ff; color: #001018; }
+        .tp-row { display: flex; align-items: center; gap: 6px; }
+        .tp-bend {
+            width: 26px; height: 22px; border-radius: 5px; cursor: pointer; font-family: inherit; font-size: 14px; line-height: 1;
+            background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.18); color: #ccc; touch-action: none;
+        }
+        .tp-bend.active { background: #ff9f1a; border-color: #ff9f1a; color: #1a0f00; }
+        .tp-slider { flex: 1; min-width: 0; accent-color: #00ff88; cursor: pointer; }
+        @media screen and (max-width: 900px) { .tempo-panel { display: none; } }
     </style>
 </head>
 <body>
@@ -2807,7 +2828,7 @@
 
             const zH = ch - RGB_OVERVIEW_H - 3;
             const cy = zH / 2;
-            const now = rgbCurrentTime(side);
+            const now = rgbCurrentTime(side) - (tracks[side].isPlaying && typeof klLatency === 'function' ? klLatency() * deckRate(side) : 0);
             const pps = cw / (RGB_WINDOW_SEC * (typeof deckRate === 'function' ? deckRate(side) : 1));
             const mid = cw / 2;
             const bands = [[w.L, 'rgb(230,40,50)', 1.0], [w.M, 'rgb(40,205,80)', 0.75], [w.H, 'rgb(50,120,255)', 0.5]];
@@ -3632,6 +3653,7 @@
         <div class="mx-hint" id="midiHint">Click any cell, then move that control on the DDJ-FLX2 to re-map it.</div>
         <div class="mx-mon">Last MIDI: <span id="midiMon">—</span></div>
         <div class="mx-mon">Last track load: <span id="loadTiming">—</span></div>
+        <button class="mx-reset" id="tempoRevBtn" onclick="toggleTempoReverse()">Tempo faders: top = slower (click to flip)</button>
         <button class="mx-reset" onclick="resetMidiMap()">Reset to default DDJ-FLX2 mapping</button>
     </div>
 
@@ -3645,6 +3667,7 @@
             'cc1:4': 'right.trim', 'cc1:7': 'right.hi', 'cc1:11': 'right.mid', 'cc1:15': 'right.low', 'cc1:19': 'right.vol',
             'cc6:23': 'left.cfx', 'cc6:24': 'right.cfx', 'cc6:31': 'xf',
             'n0:11': 'left.play', 'n1:11': 'right.play', 'n0:12': 'left.cue', 'n1:12': 'right.cue',
+            'cc0:0': 'left.tempo', 'cc1:0': 'right.tempo',
             'cc0:33': 'left.jog',  'cc0:34': 'left.scratch',  'cc0:35': 'left.scratch',  'cc0:41': 'left.search',
             'cc1:33': 'right.jog', 'cc1:34': 'right.scratch', 'cc1:35': 'right.scratch', 'cc1:41': 'right.search',
             'n0:54': 'left.touch', 'n1:54': 'right.touch',
@@ -3687,7 +3710,8 @@
             c.high.type = 'highshelf'; c.high.frequency.value = 4000;
             c.lp.type = 'lowpass';     c.lp.frequency.value = 20000; c.lp.Q.value = 0.7;
             c.hp.type = 'highpass';    c.hp.frequency.value = 20;    c.hp.Q.value = 0.7;
-            c.input.connect(c.low); c.low.connect(c.mid); c.mid.connect(c.high); c.high.connect(c.lp);
+            c.input.connect(c.low); c.low.connect(c.mid);
+            setTimeout(() => { if (typeof klInsert === 'function') klInsert(side); }, 0); c.mid.connect(c.high); c.high.connect(c.lp);
             c.lp.connect(c.hp); buildFx(ctx, c); c.fader.connect(c.xfade); c.xfade.connect(ctx.destination);
             deckChains[side] = c;
             applyDeck(side);
@@ -3715,12 +3739,12 @@
         // ---------- Mixer panel UI ----------
         const MX_ROWS = [['trim', 'TRIM'], ['hi', 'HI'], ['mid', 'MID'], ['low', 'LOW'], ['cfx', 'CFX'], ['vol', 'VOL'],
                          ['play', 'PLAY'], ['cue', 'CUE'], ['pads', 'PADS'], ['jog', 'JOG'], ['touch', 'TOUCH'],
-                         ['sync', 'SYNC'], ['shift', 'SHIFT'], ['modesel', 'SHIFT+CUE']];
+                         ['sync', 'SYNC'], ['shift', 'SHIFT'], ['modesel', 'SHIFT+CUE'], ['tempo', 'TEMPO'], ['keylock', 'KEY LOCK']];
         function buildMixerUI() {
             const g = document.getElementById('mxGrid');
             let h = '<div class="mx-colhead">LEFT</div><div></div><div class="mx-colhead">RIGHT</div>';
             MX_ROWS.forEach(([k, label]) => {
-                const cell = side => ['play', 'cue', 'pads', 'jog', 'touch', 'sync', 'shift', 'modesel'].indexOf(k) !== -1
+                const cell = side => ['play', 'cue', 'pads', 'jog', 'touch', 'sync', 'shift', 'modesel', 'keylock'].indexOf(k) !== -1
                     ? `<div class="mx-cell mx-btn-cell" data-t="${side}.${k}" id="mx-${side}-${k}">${k === 'pads' ? (side === 'left' ? 'bottom 8' : 'top 8') : k === 'jog' ? '⟳' : '●'}</div>`
                     : `<div class="mx-cell" data-t="${side}.${k}"><div class="mx-fill${k === 'hi' ? ' hi' : k === 'mid' ? ' mi' : k === 'low' ? ' lo' : ''}" id="mx-${side}-${k}"></div></div>`;
                 h += cell('left') + `<div class="mx-label">${label}</div>` + cell('right');
@@ -3830,7 +3854,7 @@
 
             // MIDI learn
             if (mxLearn) {
-                const isButton = mxLearn === 'smart' || /\.(play|cue|pads|touch|sync|shift|modesel)$/.test(mxLearn);
+                const isButton = mxLearn === 'smart' || /\.(play|cue|pads|touch|sync|shift|modesel|keylock)$/.test(mxLearn);
                 const isJog = /\.jog$/.test(mxLearn);
                 if (isButton && noteOn) {
                     if (mxLearn.endsWith('.pads')) {
@@ -3849,6 +3873,13 @@
             }
 
             if (type === 0xB0) {
+                // TEMPO fader: 14-bit (MSB on CC n, LSB on CC n+32)
+                const tm = mxLookup('cc' + ch + ':' + d1);
+                if (tm && tm.endsWith('.tempo')) { tempoMidi(tm.split('.')[0], d2, null); return; }
+                if (!tm && d1 >= 32 && d1 < 64) {
+                    const tl = mxLookup('cc' + ch + ':' + (d1 - 32));
+                    if (tl && tl.endsWith('.tempo')) { tempoMidi(tl.split('.')[0], null, d2); return; }
+                }
                 const t = mxLookup('cc' + ch + ':' + d1);
                 if (t && /\.(jog|scratch|search)$/.test(t)) { jogInput(t, d2); return; }
                 if (t) setControl(t, d2);
@@ -4030,7 +4061,8 @@
         const HC_STORE = 'icdj_hotcues_v1';
 
         function pfDeck() {
-            return { mode: 'sampler', sync: null, smart: null, nudge: 1, loop: null, cues: Array(8).fill(null), key: null,
+            return { mode: 'sampler', sync: null, smart: null, nudge: 1, tempo: 1, bend: 1, range: 8, taps: [], tapTimer: null,
+                     keylock: USE_HTML5_AUDIO, loop: null, cues: Array(8).fill(null), key: null,
                      clock: 0, fx: new Set(), roll: false, brake: false, armed: 0, armTimer: null,
                      shift: false, lastBlock: null, cueSetAt: Array(8).fill(0) };
         }
@@ -4043,7 +4075,7 @@
         // ---------- Deck clock: tempo (sync × nudge) and loop-aware position ----------
         function deckRate(side) {
             const p = perf[side];
-            return (p.smart !== null ? p.smart : (p.sync ? p.sync.rate : 1)) * p.nudge;
+            return (p.smart !== null ? p.smart : (p.sync ? p.sync.rate : p.tempo)) * p.nudge * p.bend;
         }
         function deckTick(side) {
             const t = tracks[side], p = perf[side];
@@ -4078,19 +4110,22 @@
             const t = tracks[side], r = deckRate(side);
             if (USE_HTML5_AUDIO) { if (t.audioElement) t.audioElement.playbackRate = r; }
             else if (t.source && !perf[side].brake) t.source.playbackRate.value = r;
+            if (typeof applyKeylock === 'function') applyKeylock(side);
             updateBpmDisplay(side);
         }
 
         function updateBpmDisplay(side) {
             const p = perf[side], bpm = tracks[side].bpm;
+            if (typeof updateTempoUI === 'function') updateTempoUI(side);   // also when no track is loaded yet
             const btn = document.getElementById(side + 'Sync');
             if (btn) btn.classList.toggle('active', !!p.sync);
             const el = document.getElementById(side + 'BPM');
             if (!el || !bpm) return;
-            const base = p.smart !== null ? p.smart : (p.sync ? p.sync.rate : 1);
+            const base = p.smart !== null ? p.smart : (p.sync ? p.sync.rate : p.tempo);
             const adj = p.smart !== null || !!p.sync;
-            el.textContent = adj ? (bpm * base).toFixed(1) : Math.round(bpm);
+            el.textContent = (adj || Math.abs(base - 1) > 1e-6) ? (bpm * base).toFixed(1) : Math.round(bpm);
             el.classList.toggle('bpm-synced', adj);
+            if (typeof updateTempoUI === 'function') updateTempoUI(side);
         }
 
         function refreshWave(side) {
@@ -4118,7 +4153,7 @@
                 const pt = t.pauseTime || 0;
                 if (pt < p.loop.s - 0.02 || pt > p.loop.e + 0.02) setLoop(side, null);
             }
-            if (USE_HTML5_AUDIO && t.audioElement) t.audioElement.playbackRate = deckRate(side);
+            if (USE_HTML5_AUDIO && t.audioElement) { t.audioElement.playbackRate = deckRate(side); if (typeof applyKeylock === 'function') applyKeylock(side); }
             const res = pfPrevPlay(side);
             if (!USE_HTML5_AUDIO && t.source) {
                 t.source.playbackRate.value = deckRate(side);
@@ -4170,7 +4205,7 @@
             const p = perf[side];
             if (typeof stopStream === 'function') stopStream(side);
             Array.from(p.fx).forEach(n => fxOff(side, n));
-            p.sync = null; p.smart = null; p.nudge = 1; p.loop = null; p.roll = false; p.brake = false;
+            p.sync = null; p.smart = null; p.nudge = 1; p.tempo = 1; p.bend = 1; p.loop = null; p.roll = false; p.brake = false;
             setTimeout(applySmart, 0);
             p.key = name || null;
             const saved = p.key && hcStore[p.key];
@@ -4201,14 +4236,14 @@
             const p = perf[side], o = pfOther(side);
             if (!jogLoaded(side)) { showNotification(`Load a track on the ${side} deck first`, 'error'); return; }
             if (p.sync) {
-                deckTick(side); p.sync = null; applyRate(side);
+                deckTick(side); p.sync = null; p.tempo = 1; applyRate(side);
                 showNotification(`${side.toUpperCase()} back to original ${Math.round(tracks[side].bpm)} BPM`, 'success');
                 return;
             }
             const own = tracks[side].bpm, oBpm = tracks[o].bpm;
             if (!jogLoaded(o) || !oBpm) { showNotification(`Load a track on the ${o} deck to sync to`, 'error'); return; }
             if (!own) { showNotification('This track has no BPM', 'error'); return; }
-            let ratio = oBpm * (perf[o].sync ? perf[o].sync.rate : 1) / own;
+            let ratio = oBpm * (perf[o].sync ? perf[o].sync.rate : perf[o].tempo) / own;
             while (ratio > 1.5) ratio /= 2;
             while (ratio < 0.67) ratio *= 2;
             deckTick(side);
@@ -4587,6 +4622,7 @@
             if (!on) return;
             if (k === 'modesel' || (k === 'cue' && perf[side].shift)) { flashCell(`mx-${side}-modesel`); armModeSelect(side); return; }
             if (k === 'sync') { flashCell(`mx-${side}-sync`); toggleSync(side); return; }
+            if (k === 'keylock') { flashCell(`mx-${side}-keylock`); toggleKeyLock(side); return; }
             if (k.indexOf('mode_') === 0) { setPadMode(side, k.slice(5)); return; }
             triggerButton(target);
         }
@@ -5293,6 +5329,290 @@ function ICDJ_ANALYZE(x, sr, opts) {
         };
 
         buildLibraryTabs();
+
+
+        // ===================== TEMPO: slider · pitch bend · key lock · tap tempo =====================
+        // Key lock = phase-vocoder pitch shifter (AudioWorklet) that cancels the pitch change caused by
+        // tempo. Every deck always passes through it (as a plain delay when key lock is off) so both
+        // decks keep identical latency and stay beat-matched.
+        const KL_N = 2048, KL_OSAMP = 4, KL_LATENCY_SAMPLES = KL_N - KL_N / KL_OSAMP;
+        const KL_SRC = `
+const N = ${KL_N}, OSAMP = ${KL_OSAMP}, STEP = N / OSAMP, LAT = N - STEP, HALF = N / 2;
+function fft(re, im, sign) {
+    for (let i = 1, j = 0; i < N; i++) {
+        let bit = N >> 1;
+        for (; j & bit; bit >>= 1) j ^= bit;
+        j ^= bit;
+        if (i < j) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+    }
+    for (let len = 2; len <= N; len <<= 1) {
+        const ang = sign * 2 * Math.PI / len, wr = Math.cos(ang), wi = Math.sin(ang);
+        for (let i = 0; i < N; i += len) {
+            let cr = 1, ci = 0;
+            for (let k = 0; k < len / 2; k++) {
+                const a = i + k, b = a + len / 2;
+                const tr = re[b] * cr - im[b] * ci, ti = re[b] * ci + im[b] * cr;
+                re[b] = re[a] - tr; im[b] = im[a] - ti; re[a] += tr; im[a] += ti;
+                const ncr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = ncr;
+            }
+        }
+    }
+}
+const WIN = new Float32Array(N);
+for (let k = 0; k < N; k++) WIN[k] = 0.5 - 0.5 * Math.cos(2 * Math.PI * k / N);
+function makeState() {
+    return { inF: new Float32Array(N), outF: new Float32Array(N), acc: new Float32Array(2 * N), rover: LAT,
+             lastPh: new Float32Array(HALF + 1), sumPh: new Float32Array(HALF + 1),
+             aMag: new Float32Array(HALF + 1), aFrq: new Float32Array(HALF + 1),
+             sMag: new Float32Array(HALF + 1), sFrq: new Float32Array(HALF + 1),
+             re: new Float32Array(N), im: new Float32Array(N) };
+}
+class KeyLock extends AudioWorkletProcessor {
+    constructor(opts) {
+        super();
+        const o = (opts && opts.processorOptions) || {};
+        this.on = !!o.on; this.factor = o.factor || 1; this.st = [makeState(), makeState()];
+        this.port.onmessage = e => {
+            if ('on' in e.data) this.on = e.data.on;
+            if ('factor' in e.data) this.factor = Math.max(0.5, Math.min(2, e.data.factor));
+        };
+    }
+    frame(s) {
+        const fpb = sampleRate / N, expct = 2 * Math.PI * STEP / N, f = this.factor;
+        for (let k = 0; k < N; k++) { s.re[k] = s.inF[k] * WIN[k]; s.im[k] = 0; }
+        fft(s.re, s.im, -1);
+        for (let k = 0; k <= HALF; k++) {
+            const mag = 2 * Math.sqrt(s.re[k] * s.re[k] + s.im[k] * s.im[k]);
+            const ph = Math.atan2(s.im[k], s.re[k]);
+            let t = ph - s.lastPh[k]; s.lastPh[k] = ph;
+            t -= k * expct;
+            let q = Math.trunc(t / Math.PI);
+            if (q >= 0) q += q & 1; else q -= q & 1;
+            t -= Math.PI * q;
+            t = OSAMP * t / (2 * Math.PI);
+            s.aMag[k] = mag; s.aFrq[k] = k * fpb + t * fpb;
+        }
+        s.sMag.fill(0); s.sFrq.fill(0);
+        for (let k = 0; k <= HALF; k++) {
+            const idx = Math.floor(k * f);
+            if (idx <= HALF) { s.sMag[idx] += s.aMag[k]; s.sFrq[idx] = s.aFrq[k] * f; }
+        }
+        for (let k = 0; k <= HALF; k++) {
+            let t = s.sFrq[k] - k * fpb;
+            t /= fpb; t = 2 * Math.PI * t / OSAMP; t += k * expct;
+            s.sumPh[k] += t;
+            s.re[k] = s.sMag[k] * Math.cos(s.sumPh[k]); s.im[k] = s.sMag[k] * Math.sin(s.sumPh[k]);
+        }
+        for (let k = HALF + 1; k < N; k++) { s.re[k] = 0; s.im[k] = 0; }
+        fft(s.re, s.im, 1);
+        for (let k = 0; k < N; k++) s.acc[k] += 2 * WIN[k] * s.re[k] / (HALF * OSAMP * 1.5);   // 1.5 = Hann² overlap gain
+        for (let k = 0; k < STEP; k++) s.outF[k] = s.acc[k];
+        s.acc.copyWithin(0, STEP, 2 * N); s.acc.fill(0, 2 * N - STEP);
+        s.inF.copyWithin(0, STEP, N);
+    }
+    process(inputs, outputs) {
+        const inp = inputs[0], out = outputs[0];
+        for (let c = 0; c < out.length; c++) {
+            const s = this.st[c] || (this.st[c] = makeState());
+            const x = inp[c] || inp[0], y = out[c];
+            for (let i = 0; i < y.length; i++) {
+                s.inF[s.rover] = x ? x[i] : 0;
+                y[i] = this.on ? s.outF[s.rover - LAT] : s.inF[s.rover - LAT];   // off = same-latency delay
+                if (++s.rover >= N) { s.rover = LAT; this.frame(s); }
+            }
+        }
+        return true;
+    }
+}
+registerProcessor('icdj-keylock', KeyLock);
+`;
+        window.icdjKeylockReady = false;
+        function klInsert(side) {
+            const c = deckChains[side];
+            if (!c || c.kl || !window.icdjKeylockReady) return;
+            const ctx = c.input.context;
+            c.kl = new AudioWorkletNode(ctx, 'icdj-keylock', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2] });
+            c.input.disconnect();
+            c.input.connect(c.kl);
+            c.kl.connect(c.low);
+            applyKeylock(side);
+        }
+        (function loadKeylock() {
+            if (USE_HTML5_AUDIO) return;
+            const ctx = getAudioContext();
+            if (!ctx || !ctx.audioWorklet) return;
+            ctx.audioWorklet.addModule('data:text/javascript;base64,' + btoa(unescape(encodeURIComponent(KL_SRC))))   // data: URL also works from a local file
+                .then(() => { window.icdjKeylockReady = true; PF_SIDES.forEach(klInsert); })
+                .catch(e => console.warn('Key lock unavailable:', e));
+        })();
+        function klLatency() {
+            return (window.icdjKeylockReady && audioContext) ? KL_LATENCY_SAMPLES / audioContext.sampleRate : 0;
+        }
+        function applyKeylock(side) {
+            const p = perf[side];
+            if (USE_HTML5_AUDIO) {
+                const a = tracks[side].audioElement;
+                if (a) { a.preservesPitch = p.keylock; a.webkitPreservesPitch = p.keylock; a.mozPreservesPitch = p.keylock; }
+                return;
+            }
+            const c = deckChains[side];
+            if (c && c.kl) c.kl.port.postMessage({ on: p.keylock, factor: 1 / deckRate(side) });
+        }
+
+        // ---------- Tempo slider ----------
+        const TEMPO_RANGES = [8, 16, 50];
+        function baseRate(side) {
+            const p = perf[side];
+            return p.smart !== null ? p.smart : (p.sync ? p.sync.rate : p.tempo);
+        }
+        function setTempoPos(side, x) {               // x = -1 … +1 across the current range
+            const p = perf[side];
+            x = Math.max(-1, Math.min(1, x));
+            if (p.sync) { p.sync = null; showNotification(`${side.toUpperCase()} SYNC off (manual tempo)`, 'success'); }
+            deckTick(side);
+            p.tempo = 1 + x * p.range / 100;
+            applyRate(side);
+        }
+        function updateTempoUI(side) {
+            const p = perf[side], panel = document.getElementById(side + 'Tempo');
+            if (!panel) return;
+            const pct = (baseRate(side) - 1) * 100;
+            panel.querySelector('.tp-pct').textContent = (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%';
+            const sl = panel.querySelector('.tp-slider');
+            if (!sl.dataset.drag) sl.value = Math.round(Math.max(-1, Math.min(1, pct / p.range)) * 1000);
+            panel.querySelector('[data-k="range"]').textContent = '±' + p.range + '%';
+            panel.querySelector('[data-k="key"]').classList.toggle('active', p.keylock);
+            panel.classList.toggle('locked', p.smart !== null || !!p.sync);
+            const mx = document.getElementById(`mx-${side}-tempo`);
+            if (mx) setFill(mx, (Math.max(-1, Math.min(1, pct / p.range)) + 1) * 63.5, true);
+        }
+
+        // ---------- Hardware TEMPO fader ----------
+        // Top of the fader = slower (−), bottom = faster (+), centre detent = 0 %, like djay.
+        const tempoHW = { left: { msb: 64, lsb: 0, t: 0 }, right: { msb: 64, lsb: 0, t: 0 } };
+        let tempoReverse = false;
+        try { tempoReverse = localStorage.getItem('icdj_tempo_reverse') === '1'; } catch (e) {}
+        function tempoMidi(side, msb, lsb) {
+            const h = tempoHW[side];
+            if (msb !== null) { h.msb = msb; h.lsb = 0; }
+            if (lsb !== null) h.lsb = lsb;
+            let x = ((h.msb << 7) | h.lsb) / 16383 * 2 - 1;          // −1 … +1
+            if (tempoReverse) x = -x;
+            if (Math.abs(x) < 0.012) x = 0;                           // centre detent
+            setTempoPos(side, x);
+            flashCell(`mx-${side}-tempo`);
+        }
+        function toggleTempoReverse() {
+            tempoReverse = !tempoReverse;
+            try { localStorage.setItem('icdj_tempo_reverse', tempoReverse ? '1' : '0'); } catch (e) {}
+            const b = document.getElementById('tempoRevBtn');
+            if (b) b.textContent = 'Tempo faders: ' + (tempoReverse ? 'top = faster' : 'top = slower') + ' (click to flip)';
+            showNotification('Tempo fader direction ' + (tempoReverse ? 'flipped: top = faster' : 'normal: top = slower'), 'success');
+        }
+
+        // ---------- − / + : step the tempo 0.1% (hold to keep stepping) ----------
+        function stepTempo(side, dir) {
+            const p = perf[side];
+            const cur = baseRate(side);
+            if (p.smart !== null) return;                      // Smart Fader is steering the tempo
+            if (p.sync) { p.sync = null; showNotification(`${side.toUpperCase()} SYNC off (manual tempo)`, 'success'); }
+            deckTick(side);
+            const lim = p.range / 100;
+            p.tempo = Math.round(Math.max(1 - lim, Math.min(1 + lim, cur + dir * 0.001)) * 1000) / 1000;
+            applyRate(side);
+        }
+
+        // ---------- Key lock ----------
+        let klSaved = null;
+        try { klSaved = JSON.parse(localStorage.getItem('icdj_keylock') || 'null'); } catch (e) {}
+        if (klSaved) PF_SIDES.forEach(side => { if (typeof klSaved[side] === 'boolean') perf[side].keylock = klSaved[side]; });
+        function toggleKeyLock(side) {
+            const p = perf[side];
+            if (!USE_HTML5_AUDIO && !window.icdjKeylockReady) { showNotification('Key lock is not supported in this browser', 'error'); return; }
+            p.keylock = !p.keylock;
+            applyKeylock(side);
+            updateTempoUI(side);
+            try { localStorage.setItem('icdj_keylock', JSON.stringify({ left: perf.left.keylock, right: perf.right.keylock })); } catch (e) {}
+            showNotification(`${side.toUpperCase()} KEY LOCK ${p.keylock ? 'on — pitch stays the same when tempo changes' : 'off'}`, 'success');
+        }
+
+        // ---------- Tap tempo ----------
+        function tapTempo(side) {
+            const p = perf[side], now = performance.now();
+            if (!jogLoaded(side)) { showNotification(`Load a track on the ${side} deck first`, 'error'); return; }
+            if (p.taps.length && now - p.taps[p.taps.length - 1] > 2000) p.taps = [];
+            p.taps.push(now);
+            if (p.taps.length > 9) p.taps.shift();
+            const btn = document.querySelector(`#${side}Tempo [data-k="tap"]`);
+            if (btn) { btn.classList.add('active'); setTimeout(() => btn.classList.remove('active'), 90); }
+            if (p.taps.length < 4) { if (btn) btn.textContent = 'TAP ' + p.taps.length; return; }
+            const iv = (p.taps[p.taps.length - 1] - p.taps[0]) / (p.taps.length - 1);
+            const heard = 60000 / iv;                          // BPM you hear (includes current tempo)
+            const orig = Math.round(heard / deckRate(side) * 10) / 10;
+            if (orig < 50 || orig > 220) return;
+            tracks[side].bpm = orig;
+            const pt = playlist.find(t => t.title === tracks[side].name);
+            if (pt) { pt.bpm = orig; renderPlaylist(); }
+            if (rgbWave[side]) {
+                rgbWave[side].bpm = orig;
+                const beat = 60 / orig, pos = deckPos(side) - klLatency() * deckRate(side);
+                rgbWave[side].offset = ((pos % beat) + beat) % beat;     // last tap = a beat
+                tracks[side].gridOffset = rgbWave[side].offset;
+                refreshWave(side);
+            }
+            updateBpmDisplay(side);
+            if (btn) btn.textContent = Math.round(orig) + '';
+            clearTimeout(p.tapTimer);
+            p.tapTimer = setTimeout(() => { if (btn) btn.textContent = 'TAP'; p.taps = []; }, 2500);
+        }
+
+        // ---------- Panels next to the PLAY buttons ----------
+        function buildTempoPanels() {
+            PF_SIDES.forEach(side => {
+                const play = document.getElementById(side + 'Play');
+                if (!play) return;
+                const el = document.createElement('div');
+                el.className = 'tempo-panel'; el.id = side + 'Tempo';
+                el.innerHTML = `
+                    <div class="tp-top">
+                        <span class="tp-label">TEMPO</span><span class="tp-pct">+0.0%</span>
+                        <button class="tp-btn" data-k="range" title="Tempo range">±8%</button>
+                        <button class="tp-btn" data-k="key" title="Key lock: keep the pitch when the tempo changes">KEY</button>
+                        <button class="tp-btn" data-k="tap" title="Tap 4+ times on the beat to set this track's BPM">TAP</button>
+                    </div>
+                    <div class="tp-row">
+                        <button class="tp-bend" data-b="-1" title="Tempo −0.1% (hold to keep going)">−</button>
+                        <input class="tp-slider" type="range" min="-1000" max="1000" value="0" title="Tempo (double-click to reset)">
+                        <button class="tp-bend" data-b="1" title="Tempo +0.1% (hold to keep going)">+</button>
+                    </div>`;
+                if (side === 'left') play.insertAdjacentElement('afterend', el); else play.insertAdjacentElement('beforebegin', el);
+                const sl = el.querySelector('.tp-slider');
+                sl.addEventListener('input', () => { sl.dataset.drag = '1'; setTempoPos(side, sl.value / 1000); });
+                sl.addEventListener('change', () => { delete sl.dataset.drag; updateTempoUI(side); });
+                sl.addEventListener('dblclick', () => { delete sl.dataset.drag; setTempoPos(side, 0); });
+                el.querySelector('[data-k="range"]').addEventListener('click', () => {
+                    const p = perf[side];
+                    p.range = TEMPO_RANGES[(TEMPO_RANGES.indexOf(p.range) + 1) % TEMPO_RANGES.length];
+                    updateTempoUI(side);
+                });
+                el.querySelector('[data-k="key"]').addEventListener('click', () => toggleKeyLock(side));
+                el.querySelector('[data-k="tap"]').addEventListener('click', () => tapTempo(side));
+                el.querySelectorAll('.tp-bend').forEach(b => {
+                    const dir = +b.dataset.b;
+                    let hold = null, rep = null;
+                    const down = e => {
+                        e.preventDefault(); b.classList.add('active'); stepTempo(side, dir);
+                        hold = setTimeout(() => { rep = setInterval(() => stepTempo(side, dir), 60); }, 400);
+                    };
+                    const up = () => { clearTimeout(hold); clearInterval(rep); b.classList.remove('active'); };
+                    b.addEventListener('pointerdown', down);
+                    ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, up));
+                });
+                updateTempoUI(side);
+            });
+        }
+        buildTempoPanels();
+        (function () { const b = document.getElementById('tempoRevBtn'); if (b && tempoReverse) b.textContent = 'Tempo faders: top = faster (click to flip)'; })();
 
         // Beat grid from the analyser (more accurate than the first-bass-hit estimate)
         const exPrevDraw = drawWaveform;
